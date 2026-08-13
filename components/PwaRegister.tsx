@@ -11,9 +11,13 @@ export default function PwaRegister() {
     if (process.env.NODE_ENV !== "production") return;
     if (!("serviceWorker" in navigator)) return;
 
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Registro silencioso: si falla, la app sigue funcionando sin PWA.
-    });
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then(() => navigator.serviceWorker.ready)
+      .then(() => fetch("/api/offline-kit"))
+      .catch(() => {
+        // Registro silencioso: si falla, la app sigue funcionando sin PWA.
+      });
   }, []);
 
   return null;

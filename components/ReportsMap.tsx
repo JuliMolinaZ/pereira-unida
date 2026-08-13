@@ -9,7 +9,6 @@ import {
   ACOPIO_COLOR,
   CATEGORY_EMOJI,
   CATEGORY_LABELS,
-  CATEGORY_COLORS,
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
   isClosedStatus,
@@ -96,7 +95,7 @@ function MapPinMarker({
     >
       <span className="map-pin-shadow" aria-hidden="true" />
       <svg
-        viewBox="0 0 40 54"
+        viewBox="0 0 40 51.7"
         className="relative h-full w-full overflow-visible"
         aria-hidden="true"
       >
@@ -115,7 +114,6 @@ function MapPinMarker({
             <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <ellipse cx="20" cy="50.5" rx="7.5" ry="2.4" fill="rgba(20,12,8,0.38)" />
         <path
           d="M20 1.4C10.2 1.4 2.2 9.3 2.2 19.1c0 14.2 17.8 32.6 17.8 32.6S37.8 33.3 37.8 19.1C37.8 9.3 29.8 1.4 20 1.4z"
           fill={`url(#pin-body-${uid})`}
@@ -239,6 +237,7 @@ export default function ReportsMap({
               latitude={Number(report.lat)}
               longitude={Number(report.lng)}
               anchor="bottom"
+              offset={[0, 0]}
               style={{ zIndex: selected ? 4 : isClosedStatus(report.status) ? 1 : 2 }}
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
@@ -263,6 +262,7 @@ export default function ReportsMap({
             latitude={Number(point.lat)}
             longitude={Number(point.lng)}
             anchor="bottom"
+            offset={[0, 0]}
             style={{ zIndex: point.id === openPointId ? 2 : 1 }}
             onClick={(e) => {
               e.originalEvent.stopPropagation();
@@ -332,49 +332,16 @@ export default function ReportsMap({
         <Locate className="h-[18px] w-[18px]" />
       </button>
 
-      <div className="map-legend absolute left-3 bottom-[calc(var(--sheet-current)+var(--dock-offset)+1.25rem)] z-10 max-w-[min(72vw,240px)] space-y-1.5 lg:bottom-[calc(var(--dock-height)+1.5rem)]">
-        {missingLocationCount > 0 && (
+      {missingLocationCount > 0 && (
+        <div className="absolute left-3 bottom-[calc(var(--sheet-current)+var(--dock-offset)+1.25rem)] z-10 max-w-[min(72vw,240px)] lg:bottom-[calc(var(--dock-height)+1.5rem)]">
           <div className="glass rounded-full px-3 py-1.5 text-xs font-medium text-ink">
             {missingLocationCount}{" "}
             {missingLocationCount === 1
               ? "reporte sin ubicación en el mapa"
               : "reportes sin ubicación en el mapa"}
           </div>
-        )}
-        <div className="glass rounded-2xl px-2.5 py-2 text-[10px] font-medium text-ink">
-          <p className="mb-1.5 text-[9px] tracking-wide text-ink-soft uppercase">
-            {geolocatedReports.length} pines · color + icono de categoría
-          </p>
-          <div className="flex flex-wrap gap-x-2 gap-y-1">
-            {(
-              [
-                ["alimentos", "Comida"],
-                ["medicinas", "Salud"],
-                ["herramientas_rescate", "Rescate"],
-              ] as const
-            ).map(([key, name]) => (
-              <span key={key} className="inline-flex items-center gap-1">
-                <span
-                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] leading-none text-white"
-                  style={{ backgroundColor: CATEGORY_COLORS[key] }}
-                >
-                  {CATEGORY_EMOJI[key]}
-                </span>
-                {name}
-              </span>
-            ))}
-            <span className="inline-flex items-center gap-1">
-              <span
-                className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] leading-none"
-                style={{ backgroundColor: ACOPIO_COLOR }}
-              >
-                📦
-              </span>
-              Acopio
-            </span>
-          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

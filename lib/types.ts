@@ -36,6 +36,7 @@ export interface Report {
   photo_urls: string[];
   comments_count: number;
   created_at: string;
+  last_confirmed_at?: string | null;
 }
 
 export interface Comment {
@@ -228,7 +229,7 @@ export const STATUS_ACTIONS: {
   kind: "help" | "done" | "flag";
 }[] = [
   { status: "en_camino", label: "Voy en camino", kind: "help" },
-  { status: "resuelto", label: "Ya ayudado", kind: "done" },
+  { status: "resuelto", label: "Marcar como resuelto", kind: "done" },
   { status: "informacion_falsa", label: "Información falsa", kind: "flag" },
   { status: "duplicado", label: "Es duplicado", kind: "flag" },
 ];

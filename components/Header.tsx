@@ -3,15 +3,9 @@
 import { useState } from "react";
 import { Phone, Search, X } from "lucide-react";
 import BrandMark from "./BrandMark";
+import { EMERGENCY_HOTLINES } from "@/lib/emergency";
 
 const DEV_INSTAGRAM_URL = "https://www.instagram.com/julianmolinaz";
-
-const HOTLINES = [
-  { label: "Cruz Roja", number: "132" },
-  { label: "Bomberos Pereira", number: "119" },
-  { label: "Bomberos Dosquebradas", number: "3220082" },
-  { label: "Defensa Civil", number: "144" },
-];
 
 interface HeaderProps {
   liveCount: number;
@@ -103,7 +97,7 @@ export default function Header({
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                {HOTLINES.map((line) => (
+                {EMERGENCY_HOTLINES.map((line) => (
                   <a
                     key={line.number}
                     href={`tel:${line.number}`}

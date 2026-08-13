@@ -16,12 +16,14 @@ import { getReports } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { isClosedStatus, type CollectionPoint, type Report } from "@/lib/types";
+import { isReportFromLastHours } from "@/lib/utils";
 import Header from "./Header";
 import BrandMark from "./BrandMark";
 import ActionCards from "./ActionCards";
 import FilterBar, {
   type CategoryQuickFilter,
   type MunicipalityFilter,
+  type TimeWindowFilter,
 } from "./FilterBar";
 import DenseReportList from "./DenseReportList";
 import ReportCard from "./ReportCard";
@@ -143,6 +145,7 @@ export default function HomeClient({
   const [appliedInitialReportId, setAppliedInitialReportId] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("map");
   const [listScope, setListScope] = useState<"activos" | "todos" | "cerrados">("activos");
+  const [timeWindow, setTimeWindow] = useState<TimeWindowFilter>("todas");
   const listScrollRef = useRef<HTMLDivElement>(null);
 
   const isPointsView = category === "puntos_acopio";
@@ -245,6 +248,9 @@ export default function HomeClient({
     let base = reports;
     if (listScope === "activos") base = reports.filter((r) => !isClosedStatus(r.status));
     if (listScope === "cerrados") base = reports.filter((r) => isClosedStatus(r.status));
+    if (timeWindow === "6h") {
+      base = base.filter((r) => isReportFromLastHours(r, 6));
+    }
     if (priorityMode) {
       base = base.filter((r) => !isClosedStatus(r.status));
       const urgencyRank: Record<Report["urgent_level"], number> = {
@@ -255,7 +261,7 @@ export default function HomeClient({
       return [...base].sort((a, b) => urgencyRank[a.urgent_level] - urgencyRank[b.urgent_level]);
     }
     return base;
-  }, [reports, priorityMode, listScope]);
+  }, [reports, priorityMode, listScope, timeWindow]);
 
   useEffect(() => {
     if (!selectedReportId) return;
@@ -356,6 +362,8 @@ export default function HomeClient({
               setCategory(value);
               setPriorityMode(false);
             }}
+            timeWindow={timeWindow}
+            onTimeWindowChange={setTimeWindow}
           />
         </div>
       </div>
@@ -472,7 +480,9 @@ export default function HomeClient({
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     {dataError
                       ? "No pudimos cargar los reportes."
-                      : "No hay reportes con estos filtros."}
+                      : timeWindow === "6h"
+                        ? "No hay reportes de las últimas 6 horas."
+                        : "No hay reportes con estos filtros."}
                   </p>
                 )}
 

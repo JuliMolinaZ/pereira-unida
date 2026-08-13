@@ -91,13 +91,17 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
             latitude={Number(lat)}
             longitude={Number(lng)}
             anchor="bottom"
+            offset={[0, 0]}
             draggable
             onDragEnd={(e) => onPick(e.lngLat.lat, e.lngLat.lng)}
           >
             <div
-              className="h-4 w-4 -translate-y-0.5 rounded-full border-2 border-white bg-carmine shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+              className="h-5 w-4 origin-bottom"
               aria-hidden="true"
-            />
+            >
+              <span className="block h-4 w-4 rounded-full border-2 border-white bg-carmine shadow-[0_2px_8px_rgba(0,0,0,0.35)]" />
+              <span className="mx-auto -mt-0.5 block h-2 w-0.5 bg-carmine" />
+            </div>
           </Marker>
         )}
       </Map>

@@ -190,7 +190,7 @@ export default function PhotoPicker({
         </p>
       ) : (
         <p className="mt-1.5 text-[11px] text-ink-soft">
-          {hint ?? `Hasta ${MAX_PHOTOS_PER_ENTRY} fotos.`}
+          {hint ?? `Hasta ${MAX_PHOTOS_PER_ENTRY} fotos. Se comprimen en el celular antes de enviar.`}
         </p>
       )}
     </div>

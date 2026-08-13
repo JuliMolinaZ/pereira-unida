@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Loader2, MapPin, MessageCircle, Navigation, Phone } from "lucide-react";
-import { updateReportStatus } from "@/app/actions";
+import { updateReportStatus, confirmReportActive } from "@/app/actions";
 import { formatTimeAgo, googleMapsUrl, shareToWhatsApp, cn } from "@/lib/utils";
 import {
   CATEGORY_EMOJI,
@@ -37,6 +37,22 @@ export default function ReportCard({
   const [error, setError] = useState<string | null>(null);
   const mapsHref = googleMapsUrl(report.lat, report.lng);
   const closed = isClosedStatus(report.status);
+
+  function handleConfirmActive() {
+    setError(null);
+    startTransition(async () => {
+      const result = await confirmReportActive(report.id);
+      if (result.success) {
+        onStatusUpdated({
+          ...report,
+          status: "buscando",
+          last_confirmed_at: new Date().toISOString(),
+        });
+      } else {
+        setError(result.error ?? "No se pudo confirmar el reporte.");
+      }
+    });
+  }
 
   function handleSetStatus(nextStatus: ReportStatus) {
     if (nextStatus === report.status) return;
@@ -79,7 +95,7 @@ export default function ReportCard({
                 {CATEGORY_LABELS[report.category]} · {report.location_name}
               </span>
               <span className="ml-auto shrink-0 text-[10px] text-ink-soft/70">
-                {formatTimeAgo(report.created_at)}
+                {formatTimeAgo(report.last_confirmed_at || report.created_at)}
               </span>
             </p>
           </div>
@@ -139,7 +155,7 @@ export default function ReportCard({
           {CATEGORY_EMOJI[report.category]} {CATEGORY_LABELS[report.category]}
         </span>
         <span className="ml-auto shrink-0 text-[12px] text-ink-soft/70">
-          {formatTimeAgo(report.created_at)}
+          {formatTimeAgo(report.last_confirmed_at || report.created_at)}
         </span>
       </div>
 
@@ -200,6 +216,16 @@ export default function ReportCard({
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {!closed ? (
+          <button
+            type="button"
+            onClick={handleConfirmActive}
+            disabled={isPending}
+            className="rounded-full bg-carmine/10 px-2.5 py-1 text-[11px] font-semibold text-carmine disabled:opacity-50"
+          >
+            {isPending ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "¿Sigue activa?"}
+          </button>
+        ) : null}
         {STATUS_ACTIONS.filter((action) => action.status !== report.status).map((action) => (
           <button
             key={action.status}
@@ -221,11 +247,11 @@ export default function ReportCard({
         {closed ? (
           <button
             type="button"
-            onClick={() => handleSetStatus("buscando")}
+            onClick={handleConfirmActive}
             disabled={isPending}
             className="rounded-full bg-carmine/10 px-2.5 py-1 text-[11px] font-semibold text-carmine disabled:opacity-50"
           >
-            Reabrir
+            Reabrir · sigue activa
           </button>
         ) : null}
       </div>

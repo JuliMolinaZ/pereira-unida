@@ -46,3 +46,26 @@ drop policy if exists "community_photos_insert" on storage.objects;
 create policy "community_photos_insert"
   on storage.objects for insert
   with check (bucket_id = 'community-photos');
+
+-- Recalibración WGS84 + confirmación de reportes
+update public.reports
+set lat = lng, lng = lat
+where lat between -76.5 and -75.0
+  and lng between 4.55 and 5.15;
+
+update public.collection_points
+set lat = lng, lng = lat
+where lat between -76.5 and -75.0
+  and lng between 4.55 and 5.15;
+
+update public.people_status
+set lat = lng, lng = lat
+where lat between -76.5 and -75.0
+  and lng between 4.55 and 5.15;
+
+alter table public.reports
+  add column if not exists last_confirmed_at timestamptz;
+
+update public.reports
+set last_confirmed_at = created_at
+where last_confirmed_at is null;

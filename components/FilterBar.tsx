@@ -14,12 +14,15 @@ import { cn } from "@/lib/utils";
 
 export type CategoryQuickFilter = ReportCategory | "todos" | "puntos_acopio";
 export type MunicipalityFilter = Municipality | "todos";
+export type TimeWindowFilter = "todas" | "6h";
 
 interface FilterBarProps {
   municipality: MunicipalityFilter;
   onMunicipalityChange: (value: MunicipalityFilter) => void;
   category: CategoryQuickFilter;
   onCategoryChange: (value: CategoryQuickFilter) => void;
+  timeWindow: TimeWindowFilter;
+  onTimeWindowChange: (value: TimeWindowFilter) => void;
 }
 
 export default function FilterBar({
@@ -27,12 +30,14 @@ export default function FilterBar({
   onMunicipalityChange,
   category,
   onCategoryChange,
+  timeWindow,
+  onTimeWindowChange,
 }: FilterBarProps) {
   return (
     <div
       className="no-scrollbar flex gap-1.5 overflow-x-auto touch-pan-x"
       role="tablist"
-      aria-label="Filtros de municipio y categoría"
+      aria-label="Filtros de municipio, categoría y tiempo"
     >
       {MUNICIPALITIES.map((m) => (
         <Chip
@@ -63,6 +68,15 @@ export default function FilterBar({
         onClick={() => onCategoryChange("puntos_acopio")}
       >
         <span aria-hidden="true">📦</span> Acopio
+      </Chip>
+
+      <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
+
+      <Chip
+        active={timeWindow === "6h"}
+        onClick={() => onTimeWindowChange(timeWindow === "6h" ? "todas" : "6h")}
+      >
+        <span aria-hidden="true">⏱️</span> Últimas 6 h
       </Chip>
     </div>
   );

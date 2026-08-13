@@ -1,10 +1,10 @@
 // Service worker vanilla de Pereira Unida (sin next-pwa).
-// Objetivo mínimo para una app de emergencia: dejar algo usable sin
-// conexión (líneas de emergencia) sin cachear jamás datos en vivo
-// (reportes, red familiar, puntos de acopio pasan siempre por la red).
+// En crisis deja consultables teléfonos de emergencia y direcciones de
+// acopio aunque no haya datos. Reportes en vivo nunca se sirven de caché.
 
-const CACHE_VERSION = "pereiraunida-v1";
+const CACHE_VERSION = "pereiraunida-v2";
 const OFFLINE_URL = "/offline.html";
+const OFFLINE_KIT = "/api/offline-kit";
 const PRECACHE_URLS = [OFFLINE_URL, "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -25,6 +25,18 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+function networkFirst(request) {
+  return fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
+      }
+      return response;
+    })
+    .catch(() => caches.match(request).then((cached) => cached || caches.match(OFFLINE_URL)));
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
@@ -32,8 +44,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  if (url.pathname === OFFLINE_KIT) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
   // Navegación: red primero. Si no hay red, cae a offline.html con las
-  // líneas de emergencia.
+  // líneas de emergencia y, si hay caché, los acopios.
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)));
     return;
@@ -54,8 +71,4 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
-
-  // Todo lo demás (Server Actions, RSC payloads, Supabase, API) se deja
-  // pasar directo a la red sin interceptar: es información en vivo de una
-  // emergencia y nunca debe servirse desde caché.
 });

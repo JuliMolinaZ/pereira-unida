@@ -37,6 +37,7 @@ create table if not exists public.reports (
   lng            float8,
   contact_phone  text not null,
   created_at     timestamptz not null default now(),
+  last_confirmed_at timestamptz,
   photo_urls     text[] not null default '{}'
 );
 
@@ -332,3 +333,33 @@ create policy "community_photos_update"
   to anon, authenticated
   using (bucket_id = 'community-photos')
   with check (bucket_id = 'community-photos');
+
+-- ============================================================================
+-- MIGRACIÓN 4 — Coordenadas WGS84 + confirmación de reportes
+-- (2026-08-13)
+-- ============================================================================
+
+update public.reports
+set lat = lng, lng = lat
+where lat between -76.5 and -75.0
+  and lng between 4.55 and 5.15;
+
+update public.collection_points
+set lat = lng, lng = lat
+where lat between -76.5 and -75.0
+  and lng between 4.55 and 5.15;
+
+update public.people_status
+set lat = lng, lng = lat
+where lat between -76.5 and -75.0
+  and lng between 4.55 and 5.15;
+
+alter table public.reports
+  add column if not exists last_confirmed_at timestamptz;
+
+update public.reports
+set last_confirmed_at = created_at
+where last_confirmed_at is null;
+
+create index if not exists reports_last_confirmed_at_idx
+  on public.reports (last_confirmed_at desc);

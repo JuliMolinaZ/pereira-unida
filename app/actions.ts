@@ -529,6 +529,46 @@ export async function updateReportStatus(
 }
 
 /**
+ * Confirma que la necesidad sigue activa (gente en terreno). Reabre el
+ * reporte si estaba cerrado y marca last_confirmed_at.
+ */
+export async function confirmReportActive(reportId: string): Promise<ActionResult> {
+  if (!reportId) return { success: false, error: "reportId es requerido." };
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const now = new Date().toISOString();
+  const { error } = await sb.client
+    .from("reports")
+    .update({ status: "buscando", last_confirmed_at: now })
+    .eq("id", reportId);
+
+  if (error) {
+    if (/last_confirmed_at/i.test(error.message)) {
+      const retry = await sb.client
+        .from("reports")
+        .update({ status: "buscando" })
+        .eq("id", reportId);
+      if (retry.error) return { success: false, error: retry.error.message };
+      revalidatePath("/");
+      return { success: true };
+    }
+    if (error.message.includes("reports_status_check")) {
+      return {
+        success: false,
+        error:
+          "Este estado aún no está habilitado. Aplica schema.sql en el SQL Editor de Supabase.",
+      };
+    }
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/");
+  return { success: true };
+}
+
+/**
  * Agrega un comentario a un reporte.
  */
 export async function addComment(

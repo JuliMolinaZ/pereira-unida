@@ -68,6 +68,25 @@ export function formatTimeAgo(isoDate: string): string {
   return `Hace ${diffWeeks} ${diffWeeks === 1 ? "semana" : "semanas"}`;
 }
 
+const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+/** Última señal de que la necesidad sigue vigente. */
+export function reportActivityAt(
+  report: Pick<Report, "created_at"> & { last_confirmed_at?: string | null }
+): number {
+  const iso = report.last_confirmed_at || report.created_at;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+export function isReportFromLastHours(
+  report: Pick<Report, "created_at"> & { last_confirmed_at?: string | null },
+  hours = 6
+): boolean {
+  const windowMs = hours === 6 ? SIX_HOURS_MS : hours * 60 * 60 * 1000;
+  return Date.now() - reportActivityAt(report) <= windowMs;
+}
+
 function toCoord(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = typeof value === "number" ? value : Number(value);

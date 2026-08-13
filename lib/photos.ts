@@ -4,11 +4,11 @@ export const MAX_PHOTOS_PER_ENTRY = 3;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 /** Tope al elegir: un disparo de cámara puede irse a 8–15 MB. */
 export const MAX_PHOTO_PICK_BYTES = 20 * 1024 * 1024;
-/** Lado largo: Full HD. En pantalla se ve nítido; un 12 MP baja ~4× de peso. */
-const PHOTO_MAX_EDGE = 2048;
-/** Si el JPEG del celular ya es liviano y no es enorme, no lo recomprimimos. */
-const SKIP_RECOMPRESS_BYTES = 1.2 * 1024 * 1024;
-const JPEG_QUALITIES = [0.88, 0.82, 0.76] as const;
+/** Lado largo: HD. Suficiente en pantalla y liviano en 2G/3G. */
+const PHOTO_MAX_EDGE = 1280;
+/** Si el JPEG ya es chico y no es enorme, no lo recomprimimos. */
+const SKIP_RECOMPRESS_BYTES = 350 * 1024;
+const JPEG_QUALITIES = [0.72, 0.64, 0.55] as const;
 
 const ALLOWED_PHOTO_TYPES = new Set([
   "image/jpeg",
@@ -235,7 +235,8 @@ async function encodeJpeg(canvas: HTMLCanvasElement): Promise<Blob | null> {
 
 /**
  * Prepara una foto de celular: convierte HEIC, respeta la orientación EXIF y
- * baja a 2048 px / JPEG alto. Si el JPEG ya es liviano, se deja tal cual.
+ * baja a 1280 px / JPEG liviano para redes 2G/3G. Si el JPEG ya es chico,
+ * se deja tal cual.
  */
 export async function preparePhotoFile(
   file: File
