@@ -51,7 +51,7 @@ export default function BrandMark({
 }) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <PereiraFlag className="h-[18px] w-[27px]" />
+      <PereiraFlag className="h-3.5 w-[21px] lg:h-[18px] lg:w-[27px]" />
       <span
         className={cn(
           "font-display text-[16px] leading-none font-semibold tracking-[-0.03em] text-ink",

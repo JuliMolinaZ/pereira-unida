@@ -30,9 +30,9 @@ export default function Header({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="hidden items-center lg:flex">
+      <div className="flex items-center">
         <div
-          className="glass relative flex items-center overflow-hidden rounded-full py-1.5 pr-3.5 pl-1.5"
+          className="glass relative flex items-center overflow-hidden rounded-full py-1 pr-2.5 pl-1 lg:py-1.5 lg:pr-3.5 lg:pl-1.5"
           aria-label="Pereira Unida"
         >
           <span
@@ -43,7 +43,10 @@ export default function Header({
             }}
             aria-hidden="true"
           />
-          <BrandMark className="pl-1.5" />
+          <BrandMark
+            className="pl-1 lg:pl-1.5"
+            wordmarkClassName="text-[13px] lg:text-[16px]"
+          />
         </div>
       </div>
 
@@ -122,17 +125,6 @@ export default function Header({
             </>
           )}
         </div>
-      </div>
-
-      <div className="flex justify-end px-1">
-        <a
-          href={DEV_INSTAGRAM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[11px] font-medium text-ink/55 underline decoration-ink/25 underline-offset-2 transition hover:text-ink/80"
-        >
-          Reportar error al programador
-        </a>
       </div>
     </div>
   );
