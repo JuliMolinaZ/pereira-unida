@@ -167,9 +167,19 @@ async function fetchNominatim(query: string): Promise<MapPlace[]> {
 }
 
 export async function GET(request: Request) {
-  const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q")?.trim() ?? "";
+  const mode = url.searchParams.get("mode");
   if (q.length < 2) {
     return Response.json({ places: [] as MapPlace[] });
+  }
+
+  if (mode === "geo") {
+    const nominatim = await fetchNominatim(q).catch(() => [] as MapPlace[]);
+    return Response.json(
+      { places: dedupe(nominatim).slice(0, 8) },
+      { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
+    );
   }
 
   const { amenities, extra } = detectPlaceSearch(q);
