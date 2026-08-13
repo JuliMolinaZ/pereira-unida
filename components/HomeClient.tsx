@@ -11,13 +11,26 @@ import {
   type CSSProperties,
   type PointerEvent,
 } from "react";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
 import { getReports } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { cn } from "@/lib/utils";
-import { isClosedStatus, type CollectionPoint, type Report } from "@/lib/types";
+import { cn, googleMapsUrl } from "@/lib/utils";
+import {
+  CATEGORY_LABELS,
+  isClosedStatus,
+  type CollectionPoint,
+  type Report,
+} from "@/lib/types";
 import { isReportFromLastHours } from "@/lib/utils";
+import {
+  matchesHaystack,
+  isCollectionPointSearch,
+  PLACE_COLOR,
+  PLACE_EMOJI,
+  PLACE_KIND_LABEL,
+  type MapPlace,
+} from "@/lib/places";
 import Header from "./Header";
 import BrandMark from "./BrandMark";
 import ActionCards from "./ActionCards";
@@ -152,6 +165,9 @@ export default function HomeClient({
   const [listScope, setListScope] = useState<"activos" | "todos" | "cerrados">("activos");
   const [timeWindow, setTimeWindow] = useState<TimeWindowFilter>("todas");
   const [mapReady, setMapReady] = useState(false);
+  const [mapPlaces, setMapPlaces] = useState<MapPlace[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [placesLoading, setPlacesLoading] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const skipNextRefetch = useRef(true);
 
@@ -194,14 +210,10 @@ export default function HomeClient({
   const refetch = useCallback(() => {
     const {
       municipality: currentMunicipality,
-      category: currentCategory,
-      debouncedSearchQuery: currentSearch,
       selectedReportId: currentSelectedId,
     } = filtersRef.current;
-    const categoryForQuery = currentCategory === "puntos_acopio" ? "todos" : currentCategory;
-
     startTransition(async () => {
-      const data = await getReports(categoryForQuery, "todos", currentSearch, currentMunicipality);
+      const data = await getReports("todos", "todos", undefined, currentMunicipality);
       if (data === null) return;
       const lostSelectedReport =
         data.length === 0 &&
@@ -226,13 +238,42 @@ export default function HomeClient({
 
   useEffect(() => {
     if (dataError) return;
-    if (isPointsView) return;
     if (skipNextRefetch.current) {
       skipNextRefetch.current = false;
       return;
     }
     refetch();
-  }, [municipality, category, debouncedSearchQuery, isPointsView, refetch, dataError]);
+  }, [municipality, refetch, dataError]);
+
+  useEffect(() => {
+    const q = debouncedSearchQuery;
+    if (q.length < 2) {
+      setMapPlaces([]);
+      setSelectedPlaceId(null);
+      setPlacesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSelectedPlaceId(null);
+    setPlacesLoading(true);
+    const timer = window.setTimeout(() => {
+      fetch(`/api/places?q=${encodeURIComponent(q)}`)
+        .then((res) => (res.ok ? res.json() : { places: [] }))
+        .then((data: { places?: MapPlace[] }) => {
+          if (!cancelled) setMapPlaces(data.places ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setMapPlaces([]);
+        })
+        .finally(() => {
+          if (!cancelled) setPlacesLoading(false);
+        });
+    }, 50);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [debouncedSearchQuery]);
 
   useEffect(() => {
     if (dataError) return;
@@ -285,14 +326,33 @@ export default function HomeClient({
     };
   }, [refetch, dataError]);
 
+  const isSearching = debouncedSearchQuery.length >= 2;
+
   const visibleReports = useMemo(() => {
     let base = reports;
-    if (listScope === "activos") base = reports.filter((r) => !isClosedStatus(r.status));
-    if (listScope === "cerrados") base = reports.filter((r) => isClosedStatus(r.status));
-    if (timeWindow === "6h") {
-      base = base.filter((r) => isReportFromLastHours(r, 6));
+    if (
+      !isSearching &&
+      category !== "todos" &&
+      category !== "puntos_acopio"
+    ) {
+      base = base.filter((r) => r.category === category);
     }
-    if (priorityMode) {
+    if (!isSearching) {
+      if (listScope === "activos") base = base.filter((r) => !isClosedStatus(r.status));
+      if (listScope === "cerrados") base = base.filter((r) => isClosedStatus(r.status));
+      if (timeWindow === "6h") {
+        base = base.filter((r) => isReportFromLastHours(r, 6));
+      }
+    }
+    if (isSearching) {
+      base = base.filter((r) =>
+        matchesHaystack(
+          `${r.title} ${r.description} ${r.location_name} ${r.municipality} ${CATEGORY_LABELS[r.category]}`,
+          debouncedSearchQuery
+        )
+      );
+    }
+    if (priorityMode && !isSearching) {
       base = base.filter((r) => !isClosedStatus(r.status));
       const urgencyRank: Record<Report["urgent_level"], number> = {
         critico: 0,
@@ -302,7 +362,33 @@ export default function HomeClient({
       return [...base].sort((a, b) => urgencyRank[a.urgent_level] - urgencyRank[b.urgent_level]);
     }
     return base;
-  }, [reports, priorityMode, listScope, timeWindow]);
+  }, [
+    reports,
+    priorityMode,
+    listScope,
+    timeWindow,
+    category,
+    isSearching,
+    debouncedSearchQuery,
+  ]);
+
+  const visiblePoints = useMemo(() => {
+    let base =
+      municipality === "todos"
+        ? initialPoints
+        : initialPoints.filter((p) => p.municipality === municipality);
+    if (!isSearching || isCollectionPointSearch(debouncedSearchQuery)) return base;
+    return base.filter((p) =>
+      matchesHaystack(
+        `${p.name} ${p.address} ${p.municipality} ${p.supplies_needed.join(" ")} ${p.open_hours}`,
+        debouncedSearchQuery
+      )
+    );
+  }, [initialPoints, municipality, isSearching, debouncedSearchQuery]);
+
+  const mapPoints = isSearching || isPointsView ? visiblePoints : initialPoints.filter((p) =>
+    municipality === "todos" ? true : p.municipality === municipality
+  );
 
   useEffect(() => {
     if (!selectedReportId) return;
@@ -370,10 +456,17 @@ export default function HomeClient({
       <div className="absolute inset-0 z-0">
         {mapReady ? (
           <ReportsMap
-            reports={visibleReports}
-            points={initialPoints}
+            reports={isPointsView && !isSearching ? [] : visibleReports}
+            points={mapPoints}
+            places={isSearching ? mapPlaces : []}
+            fitSearchResults={isSearching && !selectedPlaceId}
             selectedReportId={selectedReportId}
-            onSelectReport={handleSelectReport}
+            selectedPlaceId={selectedPlaceId}
+            onSelectReport={(id) => {
+              setSelectedPlaceId(null);
+              handleSelectReport(id);
+            }}
+            onSelectPlace={setSelectedPlaceId}
           />
         ) : (
           <MapBootScreen />
@@ -442,7 +535,13 @@ export default function HomeClient({
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           <SheetHandle
             mode={sheetMode}
-            count={visibleReports.length}
+            count={
+              isSearching
+                ? visibleReports.length + visiblePoints.length + mapPlaces.length
+                : isPointsView
+                  ? visiblePoints.length
+                  : visibleReports.length
+            }
             onMap={() => setSheetMode("map")}
             onPeek={() => setSheetMode("peek")}
             onExpand={() => setSheetMode("expanded")}
@@ -464,36 +563,44 @@ export default function HomeClient({
             ref={listScrollRef}
             className="sheet-scroll min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
-            {isPointsView ? (
+            {isPointsView && !isSearching ? (
               <CollectionPoints points={initialPoints} />
             ) : (
               <>
-                <div className="mb-1.5 flex items-center gap-1 rounded-full bg-black/5 p-0.5 dark:bg-white/10">
-                  {(
-                    [
-                      ["activos", "Activos", stats.total],
-                      ["todos", "Todos", stats.all],
-                      ["cerrados", "Cerrados", stats.cerrados],
-                    ] as const
-                  ).map(([key, label, count]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setListScope(key)}
-                      className={cn(
-                        "flex flex-1 items-center justify-center gap-1 rounded-full py-1.5 text-[12px] font-semibold transition",
-                        listScope === key ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
-                      )}
-                    >
-                      {label}
-                      <span className="text-[10px] font-medium opacity-70">{count}</span>
-                    </button>
-                  ))}
-                </div>
-                <p className="mb-1.5 px-1 text-[11px] text-ink-soft">
-                  Toca una fila para notas o marcar info falsa
-                  {stats.falsa > 0 ? ` · ${stats.falsa} falsos` : ""}
-                </p>
+                {isSearching ? (
+                  <p className="mb-1.5 px-1 text-[11px] text-ink-soft">
+                    Resultados de “{debouncedSearchQuery}” en el mapa y en la lista
+                  </p>
+                ) : (
+                  <>
+                    <div className="mb-1.5 flex items-center gap-1 rounded-full bg-black/5 p-0.5 dark:bg-white/10">
+                      {(
+                        [
+                          ["activos", "Activos", stats.total],
+                          ["todos", "Todos", stats.all],
+                          ["cerrados", "Cerrados", stats.cerrados],
+                        ] as const
+                      ).map(([key, label, count]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setListScope(key)}
+                          className={cn(
+                            "flex flex-1 items-center justify-center gap-1 rounded-full py-1.5 text-[12px] font-semibold transition",
+                            listScope === key ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
+                          )}
+                        >
+                          {label}
+                          <span className="text-[10px] font-medium opacity-70">{count}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mb-1.5 px-1 text-[11px] text-ink-soft">
+                      Toca una fila para notas o marcar info falsa
+                      {stats.falsa > 0 ? ` · ${stats.falsa} falsos` : ""}
+                    </p>
+                  </>
+                )}
 
                 {priorityMode && (
                   <div className="mb-2 flex items-center justify-between rounded-2xl bg-forest/10 px-3 py-2">
@@ -521,18 +628,111 @@ export default function HomeClient({
                   </div>
                 )}
 
-                {!showSkeleton && visibleReports.length === 0 && (
+                {isSearching && placesLoading && mapPlaces.length === 0 && (
+                  <p className="mb-2 flex items-center gap-1.5 px-1 text-[11px] text-ink-soft">
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    Buscando hospitales, clínicas y lugares en el mapa…
+                  </p>
+                )}
+
+                {isSearching && mapPlaces.length > 0 && (
+                  <div className="mb-3">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Lugares en el mapa · {mapPlaces.length}
+                    </p>
+                    <div className="space-y-1">
+                      {mapPlaces.map((place) => {
+                        const href = googleMapsUrl(place.lat, place.lng);
+                        return (
+                          <div
+                            key={place.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              setSelectedReportId(null);
+                              setSelectedPlaceId(place.id);
+                              setSheetMode("map");
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setSelectedReportId(null);
+                                setSelectedPlaceId(place.id);
+                                setSheetMode("map");
+                              }
+                            }}
+                            className={cn(
+                              "flex cursor-pointer items-start gap-2 rounded-2xl px-2 py-2",
+                              selectedPlaceId === place.id && "bg-black/5 dark:bg-white/10"
+                            )}
+                          >
+                            <span
+                              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[15px]"
+                              style={{ backgroundColor: `${PLACE_COLOR[place.kind]}22` }}
+                              aria-hidden="true"
+                            >
+                              {PLACE_EMOJI[place.kind]}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] leading-snug font-semibold text-ink">
+                                {place.name}
+                              </p>
+                              <p className="text-[11px] text-ink-soft">
+                                {PLACE_KIND_LABEL[place.kind]}
+                                {place.address ? ` · ${place.address}` : ""}
+                              </p>
+                            </div>
+                            {href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
+                                aria-label={`Cómo llegar a ${place.name}`}
+                              >
+                                <Navigation className="h-4 w-4" />
+                              </a>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {isSearching && visiblePoints.length > 0 && (
+                  <div className="mb-3">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Acopio · {visiblePoints.length}
+                    </p>
+                    <CollectionPoints points={visiblePoints} />
+                  </div>
+                )}
+
+                {!showSkeleton &&
+                  !placesLoading &&
+                  visibleReports.length === 0 &&
+                  mapPlaces.length === 0 &&
+                  visiblePoints.length === 0 && (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     {dataError
                       ? "No pudimos cargar los reportes."
-                      : timeWindow === "6h"
-                        ? "No hay reportes de las últimas 6 horas."
-                        : "No hay reportes con estos filtros."}
+                      : isSearching
+                        ? "No hay hospitales, acopios ni pedidos con esa búsqueda."
+                        : timeWindow === "6h"
+                          ? "No hay reportes de las últimas 6 horas."
+                          : "No hay reportes con estos filtros."}
                   </p>
                 )}
 
                 {!showSkeleton && visibleReports.length > 0 && (
                   <div className={cn("p-0.5 transition-opacity duration-200", isPending && "opacity-50")}>
+                    {isSearching ? (
+                      <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                        Pedidos de ayuda · {visibleReports.length}
+                      </p>
+                    ) : null}
                     <DenseReportList
                       reports={visibleReports}
                       selectedId={selectedReportId}

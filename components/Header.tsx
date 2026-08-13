@@ -47,12 +47,12 @@ export default function Header({
       <div className="flex items-center gap-1.5">
         <label className="glass flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full pr-2.5 pl-3.5">
           <Search className="h-[18px] w-[18px] shrink-0 text-ink/55" aria-hidden="true" />
-          <span className="sr-only">Buscar barrio o necesidad</span>
+          <span className="sr-only">Buscar hospital, clínica, acopio o necesidad</span>
           <input
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchQueryChange(e.target.value)}
-            placeholder="Buscar barrio o necesidad"
+            placeholder="Buscar hospital, clínica, barrio…"
             className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-ink outline-none placeholder:text-ink/45"
           />
           <span className="flex shrink-0 items-center gap-1.5 border-l border-ink/10 pl-2.5 text-[11px] font-medium whitespace-nowrap text-ink/70">

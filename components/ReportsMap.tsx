@@ -17,6 +17,12 @@ import {
   type CollectionPoint,
   type Report,
 } from "@/lib/types";
+import {
+  PLACE_COLOR,
+  PLACE_EMOJI,
+  PLACE_KIND_LABEL,
+  type MapPlace,
+} from "@/lib/places";
 import { cn, googleMapsUrl } from "@/lib/utils";
 
 /** Estilo vectorial libre (OpenFreeMap / OSM). Sin API key. */
@@ -149,21 +155,31 @@ function MapPinMarker({
 interface ReportsMapProps {
   reports: Report[];
   points: CollectionPoint[];
+  places?: MapPlace[];
+  fitSearchResults?: boolean;
   selectedReportId: string | null;
+  selectedPlaceId?: string | null;
   onSelectReport: (id: string) => void;
+  onSelectPlace?: (id: string | null) => void;
 }
 
 export default function ReportsMap({
   reports,
   points,
+  places = [],
+  fitSearchResults = false,
   selectedReportId,
+  selectedPlaceId = null,
   onSelectReport,
+  onSelectPlace,
 }: ReportsMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef>(null);
   const usedFallback = useRef(false);
+  const lastSearchFitKey = useRef("");
   const [mapStyle, setMapStyle] = useState<string | StyleSpecification>(VECTOR_STYLE);
   const [openPointId, setOpenPointId] = useState<string | null>(null);
+  const [openPlaceId, setOpenPlaceId] = useState<string | null>(null);
 
   const geolocatedReports = reports.filter(
     (r): r is Report & { lat: number; lng: number } => r.lat !== null && r.lng !== null
@@ -175,7 +191,10 @@ export default function ReportsMap({
 
   const selectedReport = geolocatedReports.find((r) => r.id === selectedReportId);
   const openPoint = geolocatedPoints.find((p) => p.id === openPointId);
+  const activePlaceId = selectedPlaceId ?? openPlaceId;
+  const openPlace = places.find((p) => p.id === activePlaceId) ?? null;
   const pointMapsHref = openPoint ? googleMapsUrl(openPoint.lat, openPoint.lng) : null;
+  const placeMapsHref = openPlace ? googleMapsUrl(openPlace.lat, openPlace.lng) : null;
 
   useEffect(() => {
     if (!selectedReport) return;
@@ -185,6 +204,53 @@ export default function ReportsMap({
       duration: 700,
     });
   }, [selectedReport]);
+
+  useEffect(() => {
+    if (!openPlace || selectedReport) return;
+    mapRef.current?.flyTo({
+      center: [openPlace.lng, openPlace.lat],
+      zoom: Math.max(mapRef.current.getZoom() ?? MAP_DEFAULT_ZOOM, 15),
+      duration: 700,
+    });
+  }, [openPlace, selectedReport]);
+
+  const searchFitKey = `${fitSearchResults ? 1 : 0}:${places.map((p) => p.id).join(",")}:${geolocatedReports.map((r) => r.id).join(",")}:${geolocatedPoints.map((p) => p.id).join(",")}`;
+
+  useEffect(() => {
+    if (!fitSearchResults || selectedReport || openPlace) return;
+    if (searchFitKey === lastSearchFitKey.current) return;
+    lastSearchFitKey.current = searchFitKey;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const coords: [number, number][] = [
+      ...geolocatedReports.map((r) => [r.lng, r.lat] as [number, number]),
+      ...geolocatedPoints.map((p) => [p.lng, p.lat] as [number, number]),
+      ...places.map((p) => [p.lng, p.lat] as [number, number]),
+    ];
+    if (coords.length === 0) return;
+
+    if (coords.length === 1) {
+      map.flyTo({ center: coords[0], zoom: 15, duration: 700 });
+      return;
+    }
+
+    const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+    for (const coord of coords) bounds.extend(coord);
+    map.fitBounds(bounds, {
+      padding: { top: 72, bottom: 160, left: 40, right: 40 },
+      maxZoom: 15,
+      duration: 800,
+    });
+  }, [
+    searchFitKey,
+    fitSearchResults,
+    selectedReport,
+    openPlace,
+    geolocatedReports,
+    geolocatedPoints,
+    places,
+  ]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -243,6 +309,8 @@ export default function ReportsMap({
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
                 setOpenPointId(null);
+                setOpenPlaceId(null);
+                onSelectPlace?.(null);
                 onSelectReport(report.id);
               }}
             >
@@ -267,6 +335,8 @@ export default function ReportsMap({
             style={{ zIndex: point.id === openPointId ? 2 : 1 }}
             onClick={(e) => {
               e.originalEvent.stopPropagation();
+              setOpenPlaceId(null);
+              onSelectPlace?.(null);
               setOpenPointId(point.id);
             }}
           >
@@ -275,6 +345,30 @@ export default function ReportsMap({
               color={ACOPIO_COLOR}
               selected={point.id === openPointId}
               label={`Punto de acopio: ${point.name}`}
+            />
+          </Marker>
+        ))}
+
+        {places.map((place) => (
+          <Marker
+            key={place.id}
+            latitude={Number(place.lat)}
+            longitude={Number(place.lng)}
+            anchor="bottom"
+            offset={[0, 0]}
+            style={{ zIndex: place.id === activePlaceId ? 5 : 3 }}
+            onClick={(e) => {
+              e.originalEvent.stopPropagation();
+              setOpenPointId(null);
+              setOpenPlaceId(place.id);
+              onSelectPlace?.(place.id);
+            }}
+          >
+            <MapPinMarker
+              emoji={PLACE_EMOJI[place.kind]}
+              color={PLACE_COLOR[place.kind]}
+              selected={place.id === activePlaceId}
+              label={`${PLACE_KIND_LABEL[place.kind]}: ${place.name}`}
             />
           </Marker>
         ))}
@@ -311,6 +405,53 @@ export default function ReportsMap({
               {pointMapsHref ? (
                 <a
                   href={pointMapsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  <Navigation className="h-3 w-3" aria-hidden="true" />
+                  Cómo llegar
+                </a>
+              ) : null}
+            </div>
+          </Popup>
+        )}
+
+        {openPlace && (
+          <Popup
+            latitude={Number(openPlace.lat)}
+            longitude={Number(openPlace.lng)}
+            anchor="bottom"
+            offset={PIN_POPUP_OFFSET}
+            closeButton={false}
+            closeOnClick={false}
+            onClose={() => {
+              setOpenPlaceId(null);
+              onSelectPlace?.(null);
+            }}
+            className="pereira-map-popup"
+          >
+            <div className="min-w-[170px] space-y-1.5 p-0.5 text-xs text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-wide text-ink-soft uppercase">
+                  {PLACE_KIND_LABEL[openPlace.kind]}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenPlaceId(null);
+                    onSelectPlace?.(null);
+                  }}
+                  className="text-[11px] font-medium text-ink-soft"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <p className="text-[13px] leading-snug font-semibold">{openPlace.name}</p>
+              {openPlace.address ? <p className="text-ink-soft">{openPlace.address}</p> : null}
+              {placeMapsHref ? (
+                <a
+                  href={placeMapsHref}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-1 flex w-full items-center justify-center gap-1 rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
