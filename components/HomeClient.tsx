@@ -14,6 +14,7 @@ import {
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { getReports } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 import { isClosedStatus, type CollectionPoint, type Report } from "@/lib/types";
 import { isReportFromLastHours } from "@/lib/utils";
@@ -28,21 +29,25 @@ import FilterBar, {
 import DenseReportList from "./DenseReportList";
 import ReportCard from "./ReportCard";
 import ReportCardSkeleton from "./ReportCardSkeleton";
-import CollectionPoints from "./CollectionPoints";
-import RequestHelpModal from "./RequestHelpModal";
-import FamilyStatusModal from "./FamilyStatusModal";
 
 const ReportsMap = dynamic(() => import("./ReportsMap"), {
   ssr: false,
-  loading: () => (
+  loading: () => <MapBootScreen />,
+});
+const CollectionPoints = dynamic(() => import("./CollectionPoints"));
+const RequestHelpModal = dynamic(() => import("./RequestHelpModal"));
+const FamilyStatusModal = dynamic(() => import("./FamilyStatusModal"));
+
+function MapBootScreen() {
+  return (
     <div className="flex h-full w-full items-center justify-center bg-[#0e0e10]">
       <div className="flex flex-col items-center gap-2 text-white/70">
         <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
         <span className="text-xs">Cargando mapa</span>
       </div>
     </div>
-  ),
-});
+  );
+}
 
 type SheetMode = "map" | "peek" | "expanded";
 
@@ -146,17 +151,26 @@ export default function HomeClient({
   const [sheetMode, setSheetMode] = useState<SheetMode>("map");
   const [listScope, setListScope] = useState<"activos" | "todos" | "cerrados">("activos");
   const [timeWindow, setTimeWindow] = useState<TimeWindowFilter>("todas");
+  const [mapReady, setMapReady] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
+  const skipNextRefetch = useRef(true);
 
   const isPointsView = category === "puntos_acopio";
 
-  if (initialReportId && !appliedInitialReportId) {
+  useEffect(() => {
+    const fromProp = initialReportId;
+    const fromUrl =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("reporte")
+        : null;
+    const id = fromProp || fromUrl;
+    if (!id) return;
     setAppliedInitialReportId(true);
-    setSelectedReportId(initialReportId);
+    setSelectedReportId(id);
     setCategory("todos");
     setMunicipality("todos");
     setPriorityMode(false);
-  }
+  }, [initialReportId]);
 
   useEffect(() => {
     if (appliedInitialReportId) {
@@ -198,49 +212,76 @@ export default function HomeClient({
   }, [initialReports]);
 
   useEffect(() => {
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) setMapReady(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, []);
+
+  useEffect(() => {
     if (dataError) return;
     if (isPointsView) return;
+    if (skipNextRefetch.current) {
+      skipNextRefetch.current = false;
+      return;
+    }
     refetch();
   }, [municipality, category, debouncedSearchQuery, isPointsView, refetch, dataError]);
 
   useEffect(() => {
     if (dataError) return;
-    const supabase = getSupabaseBrowserClient();
-    const channel = supabase
-      .channel("reports-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, () => refetch())
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "comments" },
-        (payload) => {
-          const reportId = (payload.new as { report_id?: string }).report_id;
-          if (!reportId) return;
-          setReports((prev) =>
-            prev.map((r) =>
-              r.id === reportId ? { ...r, comments_count: r.comments_count + 1 } : r
-            )
-          );
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "comments" },
-        (payload) => {
-          const reportId = (payload.old as { report_id?: string }).report_id;
-          if (!reportId) return;
-          setReports((prev) =>
-            prev.map((r) =>
-              r.id === reportId
-                ? { ...r, comments_count: Math.max(0, r.comments_count - 1) }
-                : r
-            )
-          );
-        }
-      )
-      .subscribe();
+    let cancelled = false;
+    let channel: RealtimeChannel | null = null;
+
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      const supabase = getSupabaseBrowserClient();
+      channel = supabase
+        .channel("reports-changes")
+        .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, () => refetch())
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "comments" },
+          (payload) => {
+            const reportId = (payload.new as { report_id?: string }).report_id;
+            if (!reportId) return;
+            setReports((prev) =>
+              prev.map((r) =>
+                r.id === reportId ? { ...r, comments_count: r.comments_count + 1 } : r
+              )
+            );
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "comments" },
+          (payload) => {
+            const reportId = (payload.old as { report_id?: string }).report_id;
+            if (!reportId) return;
+            setReports((prev) =>
+              prev.map((r) =>
+                r.id === reportId
+                  ? { ...r, comments_count: Math.max(0, r.comments_count - 1) }
+                  : r
+              )
+            );
+          }
+        )
+        .subscribe();
+    }, 1200);
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (channel) {
+        getSupabaseBrowserClient().removeChannel(channel);
+      }
     };
   }, [refetch, dataError]);
 
@@ -327,12 +368,16 @@ export default function HomeClient({
       }
     >
       <div className="absolute inset-0 z-0">
-        <ReportsMap
-          reports={visibleReports}
-          points={initialPoints}
-          selectedReportId={selectedReportId}
-          onSelectReport={handleSelectReport}
-        />
+        {mapReady ? (
+          <ReportsMap
+            reports={visibleReports}
+            points={initialPoints}
+            selectedReportId={selectedReportId}
+            onSelectReport={handleSelectReport}
+          />
+        ) : (
+          <MapBootScreen />
+        )}
       </div>
 
       <div className="absolute inset-x-0 top-0 z-10 px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-3 lg:pt-[max(0.75rem,env(safe-area-inset-top))] lg:pr-[calc(var(--sheet-panel-width)+1.5rem)]">

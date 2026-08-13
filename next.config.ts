@@ -2,10 +2,12 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   turbopack: {
     root: path.resolve(__dirname),
   },
   experimental: {
+    optimizePackageImports: ["lucide-react"],
     // Fotos de celular superan el 1 MB por defecto de Server Actions.
     serverActions: {
       bodySizeLimit: "16mb",

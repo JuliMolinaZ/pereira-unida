@@ -5,6 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import { type StyleSpecification } from "maplibre-gl";
 import Map, { Marker, Popup, type MapRef } from "react-map-gl/maplibre";
 import { Locate, Navigation } from "lucide-react";
+import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ACOPIO_COLOR,
   CATEGORY_EMOJI,

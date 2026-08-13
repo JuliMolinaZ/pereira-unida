@@ -5,6 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import { type StyleSpecification } from "maplibre-gl";
 import Map, { Marker, type MapRef } from "react-map-gl/maplibre";
 import { MAP_DEFAULT_CENTER } from "@/lib/types";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 const VECTOR_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 

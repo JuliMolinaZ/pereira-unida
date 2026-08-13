@@ -7,18 +7,33 @@ const archivo = Archivo({
   variable: "--font-archivo",
   subsets: ["latin"],
   display: "swap",
-  axes: ["wdth"],
+  preload: true,
 });
 
 const fraunces = Fraunces({
   variable: "--font-fraunces",
   subsets: ["latin"],
-  display: "swap",
+  display: "optional",
+  preload: false,
+  weight: "600",
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.vercel.app";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereira-unida.vercel.app";
 const SITE_DESCRIPTION =
   "Coordina y solicita ayuda ciudadana en tiempo real en Pereira y Dosquebradas tras una emergencia: alimentos, herramientas, medicinas, voluntariado, red familiar y puntos de acopio.";
+
+function originFromEnv(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+const supabaseOrigin = originFromEnv(process.env.NEXT_PUBLIC_SUPABASE_URL);
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -29,7 +44,6 @@ export const metadata: Metadata = {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
@@ -66,6 +80,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="es"
       className={`${archivo.variable} ${fraunces.variable} h-full antialiased`}
     >
+      {supabaseOrigin ? <link rel="preconnect" href={supabaseOrigin} /> : null}
+      <link rel="preconnect" href="https://tiles.openfreemap.org" />
+      <link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
       <body className="min-h-full flex flex-col">
         {children}
         <PwaRegister />
