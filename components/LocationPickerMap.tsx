@@ -103,7 +103,7 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
       </Map>
 
       {lat === null && (
-        <p className="pointer-events-none absolute inset-x-3 bottom-3 rounded-full bg-white/90 px-3 py-1.5 text-center text-[12px] font-medium text-ink">
+        <p className="glass pointer-events-none absolute inset-x-3 bottom-3 rounded-full px-3 py-1.5 text-center text-[12px] font-medium text-ink">
           Toca el mapa para marcar el punto exacto
         </p>
       )}

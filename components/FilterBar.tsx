@@ -30,7 +30,7 @@ export default function FilterBar({
 }: FilterBarProps) {
   return (
     <div
-      className="no-scrollbar flex gap-1.5 overflow-x-auto"
+      className="no-scrollbar flex gap-1.5 overflow-x-auto touch-pan-x"
       role="tablist"
       aria-label="Filtros de municipio y categoría"
     >
@@ -45,12 +45,12 @@ export default function FilterBar({
         </Chip>
       ))}
 
-      <span className="my-1.5 w-px shrink-0 bg-white/40" aria-hidden="true" />
+      <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
 
       {QUICK_CATEGORY_FILTERS.map(({ key, label, emoji }) => (
         <Chip
           key={key}
-          color={key === "todos" ? "#1c1410" : CATEGORY_COLORS[key]}
+          color={key === "todos" ? undefined : CATEGORY_COLORS[key]}
           active={category === key}
           onClick={() => onCategoryChange(key)}
         >
@@ -83,8 +83,8 @@ function Chip({ active, onClick, children, color }: ChipProps) {
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "glass flex h-8 shrink-0 items-center gap-1 rounded-full px-3 text-[12px] font-medium whitespace-nowrap transition active:scale-[0.97] lg:h-9 lg:px-3.5 lg:text-[13px]",
-        active ? "text-ink" : "text-ink/80"
+        "glass flex h-8 shrink-0 items-center gap-1 rounded-full px-3 text-[12px] font-medium whitespace-nowrap text-ink transition active:scale-[0.97] lg:h-9 lg:px-3.5 lg:text-[13px]",
+        !active && "opacity-80"
       )}
       style={
         color

@@ -327,21 +327,21 @@ export default function ReportsMap({
         type="button"
         onClick={recenter}
         aria-label="Centrar mapa en Pereira / Dosquebradas"
-        className="absolute right-2.5 bottom-[calc(var(--sheet-current)+var(--dock-offset)+0.85rem)] z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/90 text-ink shadow-[0_8px_32px_rgba(15,10,8,0.18)] backdrop-blur-xl lg:right-[calc(var(--sheet-panel-width)+1.5rem)] lg:bottom-[calc(var(--dock-height)+1.5rem)] lg:h-11 lg:w-11"
+        className="glass absolute right-2.5 bottom-[calc(var(--sheet-current)+var(--dock-offset)+0.85rem)] z-10 flex h-10 w-10 items-center justify-center rounded-full text-ink lg:right-[calc(var(--sheet-panel-width)+1.5rem)] lg:bottom-[calc(var(--dock-height)+1.5rem)] lg:h-11 lg:w-11"
       >
         <Locate className="h-[18px] w-[18px]" />
       </button>
 
       <div className="map-legend absolute left-3 bottom-[calc(var(--sheet-current)+var(--dock-offset)+1.25rem)] z-10 max-w-[min(72vw,240px)] space-y-1.5 lg:bottom-[calc(var(--dock-height)+1.5rem)]">
         {missingLocationCount > 0 && (
-          <div className="rounded-full border border-white/70 bg-white/90 px-3 py-1.5 text-xs font-medium text-ink shadow-[0_8px_32px_rgba(15,10,8,0.18)] backdrop-blur-xl">
+          <div className="glass rounded-full px-3 py-1.5 text-xs font-medium text-ink">
             {missingLocationCount}{" "}
             {missingLocationCount === 1
               ? "reporte sin ubicación en el mapa"
               : "reportes sin ubicación en el mapa"}
           </div>
         )}
-        <div className="rounded-2xl border border-white/70 bg-white/90 px-2.5 py-2 text-[10px] font-medium text-ink shadow-[0_8px_32px_rgba(15,10,8,0.18)] backdrop-blur-xl">
+        <div className="glass rounded-2xl px-2.5 py-2 text-[10px] font-medium text-ink">
           <p className="mb-1.5 text-[9px] tracking-wide text-ink-soft uppercase">
             {geolocatedReports.length} pines · color + icono de categoría
           </p>

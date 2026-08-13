@@ -82,7 +82,7 @@ export default function CollectionPoints({ points }: CollectionPointsProps) {
               className={cn(
                 "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
                 municipality === f.key
-                  ? "bg-white text-ink shadow-sm dark:bg-black/40"
+                  ? "bg-ink text-paper shadow-sm"
                   : "text-ink-soft"
               )}
             >

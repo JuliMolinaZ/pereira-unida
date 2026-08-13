@@ -352,7 +352,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
             aria-pressed={tab === "buscar"}
             className={cn(
               "flex-1 rounded-full py-2 text-[13px] font-semibold transition",
-              tab === "buscar" ? "bg-white text-ink shadow-sm dark:bg-black/40" : "text-ink-soft"
+              tab === "buscar" ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
             )}
           >
             Buscar
@@ -364,7 +364,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
             className={cn(
               "flex-1 rounded-full py-2 text-[13px] font-semibold transition",
               tab === "estoy_bien"
-                ? "bg-white text-ink shadow-sm dark:bg-black/40"
+                ? "bg-ink text-paper shadow-sm"
                 : "text-ink-soft"
             )}
           >
@@ -663,7 +663,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
                       className={cn(
                         "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
                         municipality === m
-                          ? "bg-white text-ink shadow-sm dark:bg-black/40"
+                          ? "bg-ink text-paper shadow-sm"
                           : "text-ink-soft"
                       )}
                     >

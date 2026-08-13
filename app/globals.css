@@ -20,7 +20,7 @@
   --atendido: #2f6b4f;
 
   /* Liquid glass (iOS) — opaco suficiente para leer sobre el mapa */
-  --glass: rgba(255, 255, 255, 0.86);
+  --glass: rgba(255, 255, 255, 0.9);
   --glass-stroke: rgba(255, 255, 255, 0.72);
   --glass-shadow: 0 8px 32px rgba(15, 10, 8, 0.18);
 
@@ -89,6 +89,9 @@
     --critico: #e0554d;
     --moderado: #e09a3a;
     --atendido: #4d9a72;
+    --glass: rgba(28, 22, 18, 0.92);
+    --glass-stroke: rgba(255, 255, 255, 0.16);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   }
 }
 
@@ -99,6 +102,7 @@
 
 html {
   scroll-behavior: smooth;
+  color-scheme: light dark;
 }
 
 html,
@@ -259,19 +263,19 @@ body {
 /* idéntica dondequiera que se defina.                                   */
 /* ---------------------------------------------------------------------- */
 .glass {
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--glass);
   backdrop-filter: blur(28px) saturate(1.4);
   -webkit-backdrop-filter: blur(28px) saturate(1.4);
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  box-shadow: 0 8px 32px rgba(15, 10, 8, 0.18);
+  border: 1px solid var(--glass-stroke);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
 }
 
-@media (prefers-color-scheme: dark) {
-  .glass {
-    background: rgba(20, 16, 14, 0.88);
-    border-color: rgba(255, 255, 255, 0.18);
-    color: var(--ink);
-  }
+.sheet-scroll {
+  overflow-y: scroll;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 /* Vidrio oscuro — para overlays directamente sobre el mapa (toasts,

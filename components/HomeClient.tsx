@@ -86,9 +86,8 @@ function SheetHandle({
       else onMap();
       return;
     }
-    if (mode === "map") onPeek();
-    else if (mode === "peek") onExpand();
-    else onMap();
+    if (mode === "expanded") onPeek();
+    else onExpand();
   }
 
   function onPointerCancel() {
@@ -110,10 +109,10 @@ function SheetHandle({
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
-      className="flex w-full shrink-0 touch-none flex-col items-center px-3 pt-1.5 pb-1 lg:hidden"
+      className="flex w-full shrink-0 flex-col items-center px-3 pt-1.5 pb-1 lg:hidden"
     >
-      <div className="mx-auto h-1.5 w-10 rounded-full bg-black/20" />
-      <span className="mt-1 text-[11px] font-medium text-ink/55">{label}</span>
+      <div className="mx-auto h-1.5 w-10 touch-none rounded-full bg-ink/25" />
+      <span className="mt-1 text-[11px] font-medium text-ink-soft">{label}</span>
     </button>
   );
 }
@@ -330,63 +329,64 @@ export default function HomeClient({
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-10">
-        <div className="pointer-events-auto px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-3 lg:pt-[max(0.75rem,env(safe-area-inset-top))] lg:pr-[calc(var(--sheet-panel-width)+1.5rem)]">
-          <Header
-            liveCount={stats.total}
-            criticalCount={stats.critico}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-          />
+      <div className="absolute inset-x-0 top-0 z-10 px-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-3 lg:pt-[max(0.75rem,env(safe-area-inset-top))] lg:pr-[calc(var(--sheet-panel-width)+1.5rem)]">
+        <Header
+          liveCount={stats.total}
+          criticalCount={stats.critico}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+        />
 
-          {dataError && (
-            <div className="glass mt-2 rounded-[22px] px-4 py-3">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-carmine">
-                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                No hay conexión con los datos
-              </p>
-              <p className="mt-1 text-xs text-ink">{dataError}</p>
-            </div>
-          )}
-
-          <div className="mt-1.5 lg:mt-2">
-            <FilterBar
-              municipality={municipality}
-              onMunicipalityChange={setMunicipality}
-              category={category}
-              onCategoryChange={(value) => {
-                setCategory(value);
-                setPriorityMode(false);
-              }}
-            />
+        {dataError && (
+          <div className="glass mt-2 rounded-[22px] px-4 py-3">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-carmine">
+              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              No hay conexión con los datos
+            </p>
+            <p className="mt-1 text-xs text-ink">{dataError}</p>
           </div>
-        </div>
+        )}
 
-        <div
-          className={cn(
-            "pointer-events-auto absolute inset-x-2.5 z-10 transition-opacity duration-200 lg:inset-x-3",
-            "bottom-[calc(var(--sheet-current)+0.45rem)]",
-            (sheetMode === "expanded" || selectedReport) &&
-              "max-lg:pointer-events-none max-lg:opacity-0",
-            "lg:bottom-[max(0.75rem,env(safe-area-inset-bottom))] lg:left-3 lg:right-[calc(var(--sheet-panel-width)+1.5rem)]"
-          )}
-        >
-          <ActionCards
-            onReportClick={() => setReportModalOpen(true)}
-            onHelpClick={handleWantsToHelp}
-            onFamilyClick={() => setFamilyModalOpen(true)}
+        <div className="mt-1.5 lg:mt-2">
+          <FilterBar
+            municipality={municipality}
+            onMunicipalityChange={setMunicipality}
+            category={category}
+            onCategoryChange={(value) => {
+              setCategory(value);
+              setPriorityMode(false);
+            }}
           />
         </div>
+      </div>
 
-        <div
-          className={cn(
-            "glass pointer-events-auto absolute z-20 flex flex-col overflow-hidden",
-            "inset-x-0 bottom-0 h-[var(--sheet-current)] rounded-t-[24px]",
-            "transition-[height,opacity] duration-300 ease-out",
-            selectedReport && "max-lg:pointer-events-none max-lg:opacity-0",
-            "lg:top-3 lg:right-3 lg:bottom-auto lg:left-auto lg:h-[calc(100dvh-24px)] lg:w-[var(--sheet-panel-width)] lg:rounded-[28px] lg:transition-none"
-          )}
-        >
+      <div
+        className={cn(
+          "absolute inset-x-2.5 z-10 transition-opacity duration-200 lg:inset-x-3",
+          "bottom-[calc(var(--sheet-current)+0.45rem)]",
+          (sheetMode === "expanded" || selectedReport) &&
+            "max-lg:pointer-events-none max-lg:opacity-0",
+          "lg:bottom-[max(0.75rem,env(safe-area-inset-bottom))] lg:left-3 lg:right-[calc(var(--sheet-panel-width)+1.5rem)]"
+        )}
+      >
+        <ActionCards
+          onReportClick={() => setReportModalOpen(true)}
+          onHelpClick={handleWantsToHelp}
+          onFamilyClick={() => setFamilyModalOpen(true)}
+        />
+      </div>
+
+      <div
+        className={cn(
+          "pointer-events-auto absolute z-20 flex flex-col overflow-hidden",
+          "inset-x-0 bottom-0 h-[var(--sheet-current)] rounded-t-[24px]",
+          "transition-[height,opacity] duration-300 ease-out",
+          selectedReport && "max-lg:pointer-events-none max-lg:opacity-0",
+          "lg:top-3 lg:right-3 lg:bottom-auto lg:left-auto lg:h-[calc(100dvh-24px)] lg:w-[var(--sheet-panel-width)] lg:rounded-[28px] lg:transition-none"
+        )}
+      >
+        <div className="glass pointer-events-none absolute inset-0" aria-hidden="true" />
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           <SheetHandle
             mode={sheetMode}
             count={visibleReports.length}
@@ -409,13 +409,13 @@ export default function HomeClient({
 
           <div
             ref={listScrollRef}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
+            className="sheet-scroll min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
             {isPointsView ? (
               <CollectionPoints points={initialPoints} />
             ) : (
               <>
-                <div className="mb-1.5 flex items-center gap-1 rounded-full bg-black/5 p-0.5">
+                <div className="mb-1.5 flex items-center gap-1 rounded-full bg-black/5 p-0.5 dark:bg-white/10">
                   {(
                     [
                       ["activos", "Activos", stats.total],
@@ -429,7 +429,7 @@ export default function HomeClient({
                       onClick={() => setListScope(key)}
                       className={cn(
                         "flex flex-1 items-center justify-center gap-1 rounded-full py-1.5 text-[12px] font-semibold transition",
-                        listScope === key ? "bg-white text-ink shadow-sm" : "text-ink-soft"
+                        listScope === key ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
                       )}
                     >
                       {label}
@@ -506,7 +506,7 @@ export default function HomeClient({
               <button
                 type="button"
                 onClick={() => setSelectedReportId(null)}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-ink shadow-[0_8px_32px_rgba(15,10,8,0.18)]"
+                className="glass flex h-9 w-9 items-center justify-center rounded-full text-ink"
                 aria-label="Cerrar"
               >
                 <X className="h-4 w-4" />

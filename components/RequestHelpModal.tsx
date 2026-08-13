@@ -355,7 +355,7 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
                 aria-pressed={municipality === m}
                 className={cn(
                   "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
-                  municipality === m ? "bg-white text-ink shadow-sm dark:bg-black/40" : "text-ink-soft"
+                  municipality === m ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
                 )}
               >
                 📍 {m}
