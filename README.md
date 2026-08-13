@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pereira Unida
 
-## Getting Started
+MVP móvil-first para coordinar ayuda ciudadana tras una emergencia en Pereira y Dosquebradas: reportar necesidades (alimentos, herramientas, medicinas, rescate, energía/wifi, mascotas, ingeniería, transporte, voluntariado), hacerles seguimiento en tiempo real, comentarlas, buscar/registrar a familiares ("Estoy Bien") y consultar centros de acopio oficiales.
 
-First, run the development server:
+**Stack:** Next.js (App Router, TypeScript, RSC + Server Actions) · Tailwind CSS · lucide-react · MapLibre GL + OpenFreeMap (mapa vectorial sin API key) · Supabase (PostgreSQL + Realtime + Storage) · PWA (service worker propio, sin dependencias).
+
+## 1. Configurar Supabase
+
+1. Crea un proyecto en [supabase.com](https://supabase.com).
+2. Ve a **SQL Editor**, pega el contenido de [`schema.sql`](./schema.sql) y ejecútalo completo. Esto crea las tablas `reports`, `comments`, `collection_points` y `people_status`, el bucket de fotos `community-photos` (Storage), sus índices, las políticas de RLS (lectura pública / escritura libre, sin autenticación) y habilita Realtime. El archivo incluye bloques de migración marcados al final — son idempotentes, puedes volver a ejecutar el archivo completo sin duplicar nada. Si prefieres el flujo de `supabase db push`, las mismas migraciones están en [`supabase/migrations/`](./supabase/migrations).
+3. Copia la **Project URL** y la **anon public key** desde *Project Settings → API*.
+
+## 2. Configurar variables de entorno
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.local.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Completa `.env.local` con tus credenciales (ver [`.env.local.example`](./.env.local.example)):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+NEXT_PUBLIC_SITE_URL=https://tu-dominio.vercel.app
+ACOPIO_PIN=cambia-este-pin
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+El mapa usa [MapLibre](https://maplibre.org) + teselas de [OpenFreeMap](https://openfreemap.org) (OpenStreetMap). No necesita API key. “Cómo llegar” abre Google Maps en el teléfono, que tampoco pide clave.
 
-## Learn More
+`ACOPIO_PIN` habilita el formulario para agregar centros de acopio nuevos (protegido por PIN compartido, sin cuentas). Si no lo defines, ese formulario simplemente no aparece.
 
-To learn more about Next.js, take a look at the following resources:
+### Si ves "fetch failed" (o la home se ve vacía sin explicación)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`.env.local` viene con placeholders (`https://placeholder.supabase.co` / `placeholder-anon-key`) para que `npm install && npm run dev` arranque sin crashear. Con esos placeholders puestos, la app **no intenta conectarse a Supabase**: `getHomeData()` detecta el placeholder antes de hacer cualquier fetch y muestra un aviso en español en la propia página en vez de loguear `TypeError: fetch failed` en la consola.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Para que la app funcione de verdad:
 
-## Deploy on Vercel
+1. Crea un proyecto real en [supabase.com](https://supabase.com) (ver paso 1 arriba).
+2. Pega la **Project URL** y la **anon public key** reales en `.env.local` (Project Settings → API).
+3. Ejecuta [`schema.sql`](./schema.sql) completo en el SQL Editor (si te falta este paso, verás "Falta aplicar schema.sql en el SQL Editor de Supabase" en vez del placeholder).
+4. Reinicia `npm run dev` (las env vars solo se leen al arrancar).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Si después de esto sigues viendo un error de conexión, es una `URL`/`anon key` real pero inalcanzable (proyecto pausado, typo, red sin salida a `supabase.co`) — no un placeholder.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Fotos (Pedir ayuda + Familia)
+
+Las fotos van a **Supabase Storage**, no a MinIO ni a un disco del servidor:
+
+| Opción | ¿Sirve en Vercel producción? | Por qué |
+|--------|------------------------------|---------|
+| **Supabase Storage** (elegido) | Sí | Ya usamos Supabase. Plan gratuito (~1 GB + CDN). Misma URL/anon key. Sin VM. |
+| Vercel Blob | Sí | También vale, pero duplicaría proveedores. |
+| MinIO | No, tal cual | Necesita un servidor 24/7 (S3 self-hosted). En Vercel no hay disco persistente. |
+
+Después de aplicar `schema.sql` (o la migración `20260813120000_photos.sql`) queda el bucket público `community-photos`. Hasta 3 fotos por reporte o por registro familiar, 5 MB, JPEG/PNG/WebP/HEIC. Si el bucket no existe, el envío de fotos muestra un error pidiendo ejecutar esa migración.
+
+## 3. Desarrollo local
+
+```bash
+npm install
+npm run dev
+```
+
+Abre [http://localhost:3000](http://localhost:3000).
+
+## 4. Desplegar en Vercel
+
+```bash
+npx vercel
+```
+
+Agrega las mismas variables de entorno del proyecto de Vercel (Settings → Environment Variables) y despliega a producción con `npx vercel --prod`.
+
+## Estructura relevante
+
+```
+schema.sql                    Esquema SQL de Supabase (tablas, RLS, Realtime) + migraciones al final
+supabase/migrations/          Mismas migraciones en formato `supabase db push`
+lib/types.ts                  Tipos compartidos (Report, CollectionPoint, PeopleStatus, maskDocumentId...)
+lib/utils.ts                  shareToWhatsApp, formatTimeAgo, googleMapsUrl
+lib/supabase/config.ts        getSupabaseConfigError(): detecta placeholders antes de cualquier fetch
+lib/supabase/client.ts        Cliente de Supabase para el navegador (Realtime)
+lib/supabase/server.ts        Cliente de Supabase (anon) para Server Actions
+app/actions.ts                Server Actions: reports, comments, collection_points, people_status, rate limiting, getHomeData
+app/page.tsx                  Server Component: getHomeData() (datos + error de configuración en español)
+app/layout.tsx                Metadata PWA (manifest, iconos) + registro del service worker
+components/HomeClient.tsx     Orquestador cliente: filtros, Realtime, estado
+components/FamilyStatusModal.tsx  Red familiar: buscar por nombre/documento y "Estoy Bien"
+components/CollectionPoints.tsx   Puntos de acopio: filtro por municipio + alta con PIN
+lib/photos.ts                 Límites y validación de fotos (bucket community-photos)
+components/PhotoPicker.tsx    Adjuntar hasta 3 fotos (cámara o galería)
+components/PhotoStrip.tsx     Miniaturas de fotos en cards y búsqueda familiar
+public/sw.js, manifest.webmanifest, offline.html   PWA sin dependencias externas
+```
+
+## Notas de seguridad
+
+Este MVP usa RLS con lectura y escritura pública (sin login) para permitir reportes inmediatos durante una emergencia. Es un modelo deliberadamente abierto; estas son las mitigaciones puntuales que sí están implementadas y sus límites:
+
+- **Rate limiting por IP, en memoria.** `app/actions.ts` limita `addComment`, `registerPersonStatus`, `updatePersonStatus` y `createCollectionPoint` (ver `checkRateLimit`). Es *best-effort*: vive en memoria del proceso, así que se resetea en cada redeploy y no se comparte entre instancias/regiones. Sirve para frenar abuso trivial, no reemplaza un rate limiter real (ej. Upstash) si el tráfico crece. Si no hay IP disponible en los headers, falla abierto (no limita) en vez de compartir un único bucket "unknown" entre clientes distintos.
+- **Búsquedas de texto libre saneadas.** `getReports` y `searchPersonStatus` arman filtros `.or(...ilike...)` con lo que escribe el usuario. `sanitizeIlikeInput` quita `% _ , ( )` (caracteres con significado especial en `ilike`/`or` de PostgREST) y acota a 80 caracteres antes de interpolar, tanto en el cliente como aquí en el server.
+- **Red familiar sin cuentas.** Cualquiera puede insertar/actualizar `people_status` (RLS `select`/`insert`/`update` públicas). El "dueño" de un registro es quien tiene su `id` guardado en `localStorage` (`pereiraunida:my-status-ids`) en su propio dispositivo — no hay autenticación real, así que alguien con el id (ej. compartido por accidente) también podría cambiar ese estado. `updatePersonStatus` solo permite tocar la columna `status`, nunca nombre/teléfono/cédula.
+- **Documento de identidad enmascarado.** Los resultados de búsqueda nunca muestran la cédula completa (`maskDocumentId`: solo los últimos 4 dígitos). El teléfono de contacto sí se muestra completo a propósito — es una emergencia y se necesita poder llamar.
+- **Fotos públicas a propósito.** El bucket `community-photos` es de lectura pública (CDN de Supabase) para que familia y voluntarios vean la imagen sin login. El server valida tipo (JPEG/PNG/WebP/HEIC), tamaño (5 MB) y cabecera del archivo; máximo 3 fotos por envío. No hay borrado desde el cliente.
+- **Alta de acopio protegida por PIN, no por cuenta.** `createCollectionPoint` compara `ACOPIO_PIN` en tiempo constante (`timingSafeStringEqual`) contra un PIN compartido por el equipo organizador. Si defines `SUPABASE_SERVICE_ROLE_KEY`, el insert se hace con esa clave (bypass controlado de RLS) y puedes cerrar la policy pública de insert (ver el paso opcional al final de la migración en `schema.sql`). Si no la defines, el insert sigue abierto a la anon key — el PIN es la única barrera real en ese caso.
+
+Antes de un uso prolongado en producción, considera agregar autenticación ligera, moderación de contenido y un rate limiter distribuido para mitigar spam/abuso a mayor escala.
+
+## PWA
+
+La app funciona instalada (`manifest.webmanifest`, iconos en `public/icon*`) y tiene un service worker propio (`public/sw.js`, sin `next-pwa`) que:
+
+- Cachea el shell estático (`_next/static/*`, inmutable por nombre de archivo con hash).
+- En navegación sin red, muestra `public/offline.html` con las líneas de emergencia (Cruz Roja, Bomberos Pereira/Dosquebradas, Defensa Civil) que funcionan por llamada normal aunque no haya internet.
+- **Nunca cachea datos en vivo**: reportes, red familiar y puntos de acopio siempre van a la red — cachearlos mostraría información de emergencia desactualizada.
+- Solo se registra en producción (`components/PwaRegister.tsx`); en desarrollo interferiría con la recarga en caliente de Turbopack.

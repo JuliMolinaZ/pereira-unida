@@ -1,26 +1,435 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f3ede4;
+  --paper-2: #ebe2d4;
+  --ink: #1c1410;
+  --ink-soft: #4a3b32;
+  --carmine: #a61b1b;
+  --carmine-deep: #7a1212;
+  --pereira-gold: #f0c94c;
+  --pereira-red: #c41a1a;
+  --ochre: #c4a35a;
+  --bark: #3c2415;
+  --forest: #2f6b4f;
+  --whatsapp: #1f6b46;
+  --maps: #3c2415;
+  --critico: #a61b1b;
+  --moderado: #c47a1b;
+  --atendido: #2f6b4f;
+
+  /* Liquid glass (iOS) — opaco suficiente para leer sobre el mapa */
+  --glass: rgba(255, 255, 255, 0.86);
+  --glass-stroke: rgba(255, 255, 255, 0.72);
+  --glass-shadow: 0 8px 32px rgba(15, 10, 8, 0.18);
+
+  /* Geometría del shell mapa-primero (móvil) */
+  --sheet-map: calc(56px + env(safe-area-inset-bottom));
+  --sheet-peek: 28vh;
+  --sheet-expanded: 86vh;
+  --sheet-current: var(--sheet-peek);
+  --sheet-panel-width: 400px;
+  --dock-height: 64px;
+  --dock-offset: var(--dock-height);
+}
+
+/* En expanded el dock se oculta (móvil); el botón Centrar no debe
+   reservar esos 64px. En lg el panel es lateral y el dock sigue visible. */
+[data-sheet="expanded"] {
+  --dock-offset: 0px;
+}
+
+@media (max-width: 1023px) {
+  [data-sheet="peek"] .map-legend,
+  [data-sheet="expanded"] .map-legend {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-sheet="expanded"] {
+    --dock-offset: var(--dock-height);
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-carmine: var(--carmine);
+  --color-carmine-deep: var(--carmine-deep);
+  --color-pereira-gold: var(--pereira-gold);
+  --color-pereira-red: var(--pereira-red);
+  --color-ochre: var(--ochre);
+  --color-bark: var(--bark);
+  --color-forest: var(--forest);
+  --font-sans: "Archivo", "Archivo Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", "Fraunces Fallback", Georgia, "Times New Roman", serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #16110e;
+    --paper-2: #1f1814;
+    --ink: #f3ede4;
+    --ink-soft: #cbbbae;
+    --carmine: #d6453d;
+    --carmine-deep: #a61b1b;
+    --pereira-gold: #f4d36a;
+    --pereira-red: #e24b44;
+    --ochre: #d4b36a;
+    --bark: #f3ede4;
+    --forest: #4d9a72;
+    --whatsapp: #3d9a6a;
+    --maps: #f3ede4;
+    --critico: #e0554d;
+    --moderado: #e09a3a;
+    --atendido: #4d9a72;
   }
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 35%, transparent) transparent;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  overscroll-behavior: none;
+}
+
+body {
+  /* El mapa es el fondo real de la home; este color solo se ve un instante
+     mientras carga o detrás de superficies de vidrio semitransparentes. */
+  background-color: #0e0e10;
+  color: var(--ink);
+  font-family: var(--font-archivo), "Archivo", ui-sans-serif, system-ui, sans-serif;
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.font-display {
+  font-family: var(--font-fraunces), "Fraunces", Georgia, serif;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Botones — pills de vidrio (iOS), no sello de imprenta                  */
+/* ---------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1.15;
+  border-radius: 9999px;
+  border: 1px solid var(--glass-stroke);
+  padding: 0.6rem 1rem;
+  background: var(--glass);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  box-shadow: var(--glass-shadow);
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    background-color 220ms ease;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.btn-carmine {
+  background: var(--carmine);
+  border-color: transparent;
+  color: #fff8f0;
+}
+
+.btn-ink {
+  background: color-mix(in srgb, var(--ink) 85%, transparent);
+  border-color: transparent;
+  color: var(--paper);
+}
+
+.btn-paper {
+  background: var(--glass);
+  color: var(--ink);
+}
+
+.btn-forest {
+  background: var(--whatsapp);
+  border-color: transparent;
+  color: #fff8f0;
+}
+
+.btn-bark {
+  background: color-mix(in srgb, var(--ink) 85%, transparent);
+  border-color: transparent;
+  color: #fff8f0;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.btn-ghost:active {
+  transform: none;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.btn-lg {
+  font-size: 0.9375rem;
+  padding: 0.85rem 1.25rem;
+}
+
+.btn-icon {
+  padding: 0.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Campos de formulario                                                   */
+/* ---------------------------------------------------------------------- */
+.field {
+  width: 100%;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  box-shadow: 2px 2px 0 0 color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.field:focus {
+  box-shadow: 3px 3px 0 0 var(--carmine);
+  border-color: var(--carmine);
+}
+
+.field-sm {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.field-icon {
+  padding-left: 2.25rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Glass — superficie iOS/liquid-glass para todo lo que flota sobre el    */
+/* mapa (sheets, cards, popovers). Compartida entre agentes: debe quedar  */
+/* idéntica dondequiera que se defina.                                   */
+/* ---------------------------------------------------------------------- */
+.glass {
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 32px rgba(15, 10, 8, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  .glass {
+    background: rgba(20, 16, 14, 0.88);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--ink);
+  }
+}
+
+/* Vidrio oscuro — para overlays directamente sobre el mapa (toasts,
+ * chips de estado) donde el fondo claro de .glass no da suficiente
+ * contraste sobre tiles claros/oscuros indistintamente. */
+.glass-dark {
+  background: rgba(20, 16, 14, 0.78);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  color: #fff8f0;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Modal (native <dialog>)                                                */
+/* ---------------------------------------------------------------------- */
+dialog {
+  margin: auto;
+}
+
+@media (max-width: 640px) {
+  dialog {
+    position: fixed;
+    inset: auto 0 0 0;
+    margin: 0;
+    max-height: 92vh;
+    width: 100%;
+  }
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+dialog[open] {
+  animation: dialog-in 0.2s ease-out;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Skeleton                                                               */
+/* ---------------------------------------------------------------------- */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--ink) 8%, transparent) 25%,
+    color-mix(in srgb, var(--ink) 16%, transparent) 37%,
+    color-mix(in srgb, var(--ink) 8%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.28s ease-out both;
+}
+
+.report-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 76px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* MapLibre — el canvas debe llenar el contenedor (si no, el mapa se ve
+   blanco / a altura 0 por el preflight de Tailwind).                     */
+/* ---------------------------------------------------------------------- */
+.maplibregl-map,
+.maplibregl-canvas-container,
+.maplibregl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+}
+
+/* Los pines/markers viven DENTRO del mapa (isolate). Si no, su z-index
+   pinta por encima de la ficha y del sheet. */
+.maplibregl-marker {
+  z-index: 1;
+}
+
+.map-pin-3d {
+  transform: perspective(120px) rotateX(14deg);
+  transform-origin: bottom center;
+  filter: drop-shadow(0 10px 10px rgba(20, 10, 6, 0.42));
+  transition: transform 0.15s ease-out, filter 0.15s ease-out;
+}
+
+.map-pin-3d[aria-pressed="true"] {
+  transform: perspective(120px) rotateX(10deg) scale(1.12);
+  transform-origin: bottom center;
+  filter: drop-shadow(0 14px 14px rgba(20, 10, 6, 0.5));
+}
+
+.map-pin-shadow {
+  position: absolute;
+  right: 18%;
+  bottom: -2px;
+  left: 18%;
+  height: 7px;
+  border-radius: 100%;
+  background: rgba(20, 10, 6, 0.38);
+  filter: blur(3px);
+  transform: scaleX(1.05);
+}
+
+.maplibregl-popup {
+  z-index: 30 !important;
+}
+
+/* ---------------------------------------------------------------------- */
+/* MapLibre popup                                                         */
+/* ---------------------------------------------------------------------- */
+.pereira-map-popup .maplibregl-popup-content {
+  border-radius: 20px;
+  padding: 12px 14px;
+  background: var(--glass);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  box-shadow: var(--glass-shadow);
+  border: 1px solid var(--glass-stroke);
+}
+
+.pereira-map-popup .maplibregl-popup-tip {
+  border-top-color: color-mix(in srgb, var(--glass) 60%, white);
 }

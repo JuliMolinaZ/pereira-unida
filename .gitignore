@@ -20,6 +20,9 @@
 # production
 /build
 
+# MapLibre worker copiado en postinstall (no versionar dist de node_modules)
+/public/maplibre/
+
 # misc
 .DS_Store
 *.pem
@@ -32,6 +35,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.local.example
 
 # vercel
 .vercel

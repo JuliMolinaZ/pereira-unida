@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="Pereira Unida">
+  <defs>
+    <clipPath id="r">
+      <rect width="192" height="192" rx="40"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="192" height="96" fill="#f0c94c"/>
+    <rect y="96" width="192" height="96" fill="#c41a1a"/>
+  </g>
+  <path
+    d="M46 118 V98 C46 80 60 66 78 66 H88 C97 66 104 72 106 81 C108 72 115 66 124 66 H134 C152 66 166 80 166 98 V118"
+    fill="none"
+    stroke="#fff8f0"
+    stroke-width="10"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M40 128 H152" stroke="#fff8f0" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="96" cy="42" r="10" fill="#fff8f0"/>
+</svg>
