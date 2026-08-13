@@ -12,6 +12,9 @@ import {
   SUPABASE_CONFIG_ERROR_MESSAGE,
 } from "@/lib/supabase/config";
 import type {
+  ClosedRoad,
+  ClosedRoadReason,
+  ClosedRoadStatus,
   CollectionPoint,
   Comment,
   HomeData,
@@ -21,6 +24,7 @@ import type {
   Report,
   ReportCategory,
   ReportStatus,
+  RoadPoint,
   UrgentLevel,
 } from "@/lib/types";
 import {
@@ -61,6 +65,42 @@ const VALID_PERSON_STATUS: PersonStatus[] = [
   "necesito_traslado",
   "sin_conexion",
 ];
+const VALID_ROAD_REASONS: ClosedRoadReason[] = [
+  "derrumbe",
+  "inundacion",
+  "arbol",
+  "hundimiento",
+  "bloqueo",
+  "otro",
+];
+
+function parseRoadPath(raw: string): RoadPoint[] | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length < 2 || parsed.length > 40) return null;
+    const path: RoadPoint[] = [];
+    for (const point of parsed) {
+      if (!point || typeof point !== "object") return null;
+      const lat = Number((point as { lat?: unknown }).lat);
+      const lng = Number((point as { lng?: unknown }).lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      if (lat < 4.5 || lat > 5.2 || lng < -76.1 || lng > -75.3) return null;
+      path.push({ lat, lng });
+    }
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+function isMissingClosedRoadsTable(message: string | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("closed_roads") ||
+    (lower.includes("schema cache") && lower.includes("closed"))
+  );
+}
 
 export interface ActionResult<T = void> {
   success: boolean;
@@ -703,33 +743,40 @@ export async function getCollectionPoints(): Promise<CollectionPoint[]> {
  */
 export async function getHomeData(): Promise<HomeData> {
   const cfg = getSupabaseConfigError();
-  if (cfg) return { reports: [], points: [], error: cfg };
+  if (cfg) return { reports: [], points: [], roads: [], error: cfg };
 
   const sb = getSupabaseOrError();
   if (!sb.client) {
-    return { reports: [], points: [], error: sb.error };
+    return { reports: [], points: [], roads: [], error: sb.error };
   }
 
   try {
-    const [reportsPack, pointsRes] = await Promise.all([
+    const [reportsPack, pointsRes, roadsRes] = await Promise.all([
       loadReports(sb.client),
       sb.client.from("collection_points").select("*").order("name", { ascending: true }),
+      sb.client.from("closed_roads").select("*").order("created_at", { ascending: false }),
     ]);
 
     const reports = reportsPack.rows;
     const points = (pointsRes.data ?? []) as CollectionPoint[];
-    const rawError = reportsPack.error ?? pointsRes.error?.message ?? null;
+    const roadsMissing = isMissingClosedRoadsTable(roadsRes.error?.message);
+    const roads = roadsMissing ? [] : ((roadsRes.data ?? []) as ClosedRoad[]);
+    const rawError =
+      reportsPack.error ??
+      pointsRes.error?.message ??
+      (roadsMissing ? null : roadsRes.error?.message) ??
+      null;
 
     if (rawError) {
       console.error("getHomeData error:", rawError);
-      return { reports, points, error: classifyHomeDataError(rawError) };
+      return { reports, points, roads, error: classifyHomeDataError(rawError) };
     }
 
-    return { reports, points, error: null };
+    return { reports, points, roads, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("getHomeData error:", message);
-    return { reports: [], points: [], error: classifyHomeDataError(message) };
+    return { reports: [], points: [], roads: [], error: classifyHomeDataError(message) };
   }
 }
 
@@ -967,6 +1014,89 @@ export async function isAcopioSecretValid(secret: string): Promise<boolean> {
  */
 export async function isAcopioEnabled(): Promise<boolean> {
   return getAcopioSecrets().length > 0;
+}
+
+export async function createClosedRoad(
+  formData: FormData
+): Promise<ActionResult<ClosedRoad>> {
+  const name = String(formData.get("name") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "") as ClosedRoadReason;
+  const note = String(formData.get("note") ?? "").trim();
+  const municipality = String(formData.get("municipality") ?? "") as Municipality;
+  const path = parseRoadPath(String(formData.get("path") ?? ""));
+
+  if (!name) return { success: false, error: "Indica el nombre de la calle o tramo." };
+  if (!VALID_ROAD_REASONS.includes(reason)) {
+    return { success: false, error: "Elige por qué no se puede transitar." };
+  }
+  if (!VALID_MUNICIPALITIES.includes(municipality)) {
+    return { success: false, error: "Municipio inválido." };
+  }
+  if (!path) {
+    return {
+      success: false,
+      error: "Marca el tramo en el mapa tocando al menos dos puntos sobre la calle.",
+    };
+  }
+
+  const allowed = await checkRateLimit("createClosedRoad", 8, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("closed_roads")
+    .insert({
+      name,
+      reason,
+      note,
+      municipality,
+      path,
+      status: "cerrada",
+    })
+    .select()
+    .single();
+
+  if (error) {
+    return {
+      success: false,
+      error: isMissingClosedRoadsTable(error.message)
+        ? "Falta crear la tabla de vías cerradas en Supabase (migración closed_roads)."
+        : classifyHomeDataError(error.message),
+    };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: data as ClosedRoad };
+}
+
+export async function reopenClosedRoad(
+  id: string
+): Promise<ActionResult<ClosedRoad>> {
+  if (!UUID_RE.test(id)) return { success: false, error: "Vía inválida." };
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("closed_roads")
+    .update({ status: "reabierta" satisfies ClosedRoadStatus })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return { success: false, error: classifyHomeDataError(error.message) };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: data as ClosedRoad };
 }
 
 /**

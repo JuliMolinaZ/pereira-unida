@@ -12,7 +12,7 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export type CategoryQuickFilter = ReportCategory | "todos" | "puntos_acopio";
+export type CategoryQuickFilter = ReportCategory | "todos" | "puntos_acopio" | "vias_cerradas";
 export type MunicipalityFilter = Municipality | "todos";
 export type TimeWindowFilter = "todas" | "6h";
 
@@ -68,6 +68,13 @@ export default function FilterBar({
         onClick={() => onCategoryChange("puntos_acopio")}
       >
         <span aria-hidden="true">📦</span> Acopio
+      </Chip>
+      <Chip
+        color="#a61b1b"
+        active={category === "vias_cerradas"}
+        onClick={() => onCategoryChange("vias_cerradas")}
+      >
+        <span aria-hidden="true">🚧</span> Vías
       </Chip>
 
       <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />

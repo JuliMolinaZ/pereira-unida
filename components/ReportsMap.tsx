@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import { type StyleSpecification } from "maplibre-gl";
-import Map, { Marker, Popup, type MapRef } from "react-map-gl/maplibre";
+import Map, { Layer, Marker, Popup, Source, type MapRef } from "react-map-gl/maplibre";
 import { Locate, Navigation } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -12,8 +12,12 @@ import {
   CATEGORY_LABELS,
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
+  ROAD_HAZARD_RED,
+  ROAD_HAZARD_YELLOW,
+  CLOSED_ROAD_REASON_LABELS,
   isClosedStatus,
   pinColorForReport,
+  type ClosedRoad,
   type CollectionPoint,
   type Report,
 } from "@/lib/types";
@@ -155,23 +159,29 @@ function MapPinMarker({
 interface ReportsMapProps {
   reports: Report[];
   points: CollectionPoint[];
+  roads?: ClosedRoad[];
   places?: MapPlace[];
   fitSearchResults?: boolean;
   selectedReportId: string | null;
   selectedPlaceId?: string | null;
   onSelectReport: (id: string) => void;
   onSelectPlace?: (id: string | null) => void;
+  onAddClosedRoad?: () => void;
+  onReopenRoad?: (id: string) => void;
 }
 
 export default function ReportsMap({
   reports,
   points,
+  roads = [],
   places = [],
   fitSearchResults = false,
   selectedReportId,
   selectedPlaceId = null,
   onSelectReport,
   onSelectPlace,
+  onAddClosedRoad,
+  onReopenRoad,
 }: ReportsMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef>(null);
@@ -180,6 +190,22 @@ export default function ReportsMap({
   const [mapStyle, setMapStyle] = useState<string | StyleSpecification>(VECTOR_STYLE);
   const [openPointId, setOpenPointId] = useState<string | null>(null);
   const [openPlaceId, setOpenPlaceId] = useState<string | null>(null);
+  const [openRoadId, setOpenRoadId] = useState<string | null>(null);
+
+  const activeRoads = roads.filter(
+    (road) => road.status === "cerrada" && Array.isArray(road.path) && road.path.length >= 2
+  );
+  const roadsGeojson = {
+    type: "FeatureCollection" as const,
+    features: activeRoads.map((road) => ({
+      type: "Feature" as const,
+      properties: { id: road.id, name: road.name, reason: road.reason },
+      geometry: {
+        type: "LineString" as const,
+        coordinates: road.path.map((point) => [point.lng, point.lat] as [number, number]),
+      },
+    })),
+  };
 
   const geolocatedReports = reports.filter(
     (r): r is Report & { lat: number; lng: number } => r.lat !== null && r.lng !== null
@@ -195,6 +221,8 @@ export default function ReportsMap({
   const openPlace = places.find((p) => p.id === activePlaceId) ?? null;
   const pointMapsHref = openPoint ? googleMapsUrl(openPoint.lat, openPoint.lng) : null;
   const placeMapsHref = openPlace ? googleMapsUrl(openPlace.lat, openPlace.lng) : null;
+  const openRoad = activeRoads.find((road) => road.id === openRoadId) ?? null;
+  const roadPopupPoint = openRoad?.path[Math.floor(openRoad.path.length / 2)] ?? null;
 
   useEffect(() => {
     if (!selectedReport) return;
@@ -289,13 +317,55 @@ export default function ReportsMap({
         }}
         style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
         attributionControl={{ compact: true }}
+        interactiveLayerIds={activeRoads.length > 0 ? ["closed-roads-hit"] : undefined}
         onLoad={() => mapRef.current?.resize()}
+        onClick={(e) => {
+          const feature = e.features?.find((item) => item.layer.id === "closed-roads-hit");
+          const roadId = feature?.properties?.id;
+          if (typeof roadId === "string") {
+            setOpenRoadId(roadId);
+            setOpenPointId(null);
+            setOpenPlaceId(null);
+            onSelectPlace?.(null);
+          }
+        }}
         onError={() => {
           if (usedFallback.current) return;
           usedFallback.current = true;
           setMapStyle(RASTER_STYLE);
         }}
       >
+        {activeRoads.length > 0 && (
+          <Source id="closed-roads" type="geojson" data={roadsGeojson}>
+            <Layer
+              id="closed-roads-glow"
+              type="line"
+              paint={{
+                "line-color": ROAD_HAZARD_YELLOW,
+                "line-width": 12,
+                "line-opacity": 0.55,
+                "line-blur": 0.4,
+              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+            <Layer
+              id="closed-roads-line"
+              type="line"
+              paint={{
+                "line-color": ROAD_HAZARD_RED,
+                "line-width": 4.5,
+                "line-dasharray": [1.7, 1.1],
+              }}
+              layout={{ "line-cap": "round", "line-join": "round" }}
+            />
+            <Layer
+              id="closed-roads-hit"
+              type="line"
+              paint={{ "line-color": "#000000", "line-width": 18, "line-opacity": 0.01 }}
+            />
+          </Source>
+        )}
+
         {geolocatedReports.map((report) => {
           const selected = report.id === selectedReportId;
           return (
@@ -463,16 +533,87 @@ export default function ReportsMap({
             </div>
           </Popup>
         )}
+
+        {openRoad && roadPopupPoint && (
+          <Popup
+            latitude={roadPopupPoint.lat}
+            longitude={roadPopupPoint.lng}
+            anchor="bottom"
+            offset={18}
+            closeButton={false}
+            closeOnClick={false}
+            onClose={() => setOpenRoadId(null)}
+            className="pereira-map-popup"
+          >
+            <div className="min-w-[180px] space-y-1.5 p-0.5 text-xs text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-wide text-carmine uppercase">
+                  No transitable
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenRoadId(null)}
+                  className="text-[11px] font-medium text-ink-soft"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <p className="text-[13px] leading-snug font-semibold">{openRoad.name}</p>
+              <p className="text-ink-soft">{CLOSED_ROAD_REASON_LABELS[openRoad.reason]}</p>
+              {openRoad.note ? <p className="text-ink-soft">{openRoad.note}</p> : null}
+              {onReopenRoad ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onReopenRoad(openRoad.id);
+                    setOpenRoadId(null);
+                  }}
+                  className="mt-1 flex w-full items-center justify-center rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  Ya se puede transitar
+                </button>
+              ) : null}
+            </div>
+          </Popup>
+        )}
       </Map>
 
-      <button
-        type="button"
-        onClick={recenter}
-        aria-label="Centrar mapa en Pereira / Dosquebradas"
-        className="glass absolute right-2.5 bottom-[calc(var(--sheet-current)+var(--dock-offset)+0.85rem)] z-10 flex h-10 w-10 items-center justify-center rounded-full text-ink lg:right-[calc(var(--sheet-panel-width)+1.5rem)] lg:bottom-[calc(var(--dock-height)+1.5rem)] lg:h-11 lg:w-11"
-      >
-        <Locate className="h-[18px] w-[18px]" />
-      </button>
+      <div className="absolute right-2.5 bottom-[calc(var(--sheet-current)+var(--dock-offset)+0.85rem)] z-10 flex flex-col gap-2 lg:right-[calc(var(--sheet-panel-width)+1.5rem)] lg:bottom-[calc(var(--dock-height)+1.5rem)]">
+        {onAddClosedRoad ? (
+          <button
+            type="button"
+            onClick={onAddClosedRoad}
+            aria-label="Marcar calle cerrada"
+            className="glass flex h-10 w-10 items-center justify-center rounded-full text-[16px] lg:h-11 lg:w-11"
+          >
+            🚧
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={recenter}
+          aria-label="Centrar mapa en Pereira / Dosquebradas"
+          className="glass flex h-10 w-10 items-center justify-center rounded-full text-ink lg:h-11 lg:w-11"
+        >
+          <Locate className="h-[18px] w-[18px]" />
+        </button>
+      </div>
+
+      {activeRoads.length > 0 && (
+        <div className="absolute left-3 bottom-[calc(var(--sheet-current)+var(--dock-offset)+3.4rem)] z-10 lg:bottom-[calc(var(--dock-height)+3.6rem)]">
+          <div className="glass flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-ink">
+            <span
+              className="inline-block h-1.5 w-6 rounded-full"
+              style={{
+                backgroundImage: `repeating-linear-gradient(90deg, ${ROAD_HAZARD_RED} 0 7px, ${ROAD_HAZARD_YELLOW} 7px 12px)`,
+              }}
+              aria-hidden="true"
+            />
+            {activeRoads.length} vía{activeRoads.length === 1 ? "" : "s"} cerrada
+            {activeRoads.length === 1 ? "" : "s"}
+          </div>
+        </div>
+      )}
 
       {missingLocationCount > 0 && (
         <div className="absolute left-3 bottom-[calc(var(--sheet-current)+var(--dock-offset)+1.25rem)] z-10 max-w-[min(72vw,240px)] lg:bottom-[calc(var(--dock-height)+1.5rem)]">

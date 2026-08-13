@@ -254,6 +254,48 @@ export const PERSON_STATUS_COLORS: Record<PersonStatus, string> = {
   sin_conexion: "#c47a1b",
 };
 
+export type ClosedRoadReason =
+  | "derrumbe"
+  | "inundacion"
+  | "arbol"
+  | "hundimiento"
+  | "bloqueo"
+  | "otro";
+
+export type ClosedRoadStatus = "cerrada" | "reabierta";
+
+export interface RoadPoint {
+  lat: number;
+  lng: number;
+}
+
+export interface ClosedRoad {
+  id: string;
+  name: string;
+  reason: ClosedRoadReason;
+  note: string;
+  municipality: Municipality;
+  path: RoadPoint[];
+  status: ClosedRoadStatus;
+  created_at: string;
+}
+
+export const CLOSED_ROAD_REASON_LABELS: Record<ClosedRoadReason, string> = {
+  derrumbe: "Derrumbe",
+  inundacion: "Inundación",
+  arbol: "Árbol o escombros",
+  hundimiento: "Hundimiento / grieta",
+  bloqueo: "Bloqueo",
+  otro: "Otro",
+};
+
+export const CLOSED_ROAD_REASONS = Object.keys(
+  CLOSED_ROAD_REASON_LABELS
+) as ClosedRoadReason[];
+
+export const ROAD_HAZARD_YELLOW = "#e2b340";
+export const ROAD_HAZARD_RED = "#a61b1b";
+
 /** Enmascara un documento de identidad dejando solo los últimos 4 dígitos
  * visibles (privacidad en resultados de búsqueda pública). */
 export function maskDocumentId(id: string | null): string | null {
@@ -268,5 +310,6 @@ export function maskDocumentId(id: string | null): string | null {
 export interface HomeData {
   reports: Report[];
   points: CollectionPoint[];
+  roads: ClosedRoad[];
   error: string | null;
 }

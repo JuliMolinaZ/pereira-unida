@@ -12,13 +12,15 @@ import {
   type PointerEvent,
 } from "react";
 import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
-import { getReports } from "@/app/actions";
+import { getReports, reopenClosedRoad } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { cn, googleMapsUrl } from "@/lib/utils";
 import {
   CATEGORY_LABELS,
+  CLOSED_ROAD_REASON_LABELS,
   isClosedStatus,
+  type ClosedRoad,
   type CollectionPoint,
   type Report,
 } from "@/lib/types";
@@ -50,6 +52,7 @@ const ReportsMap = dynamic(() => import("./ReportsMap"), {
 const CollectionPoints = dynamic(() => import("./CollectionPoints"));
 const RequestHelpModal = dynamic(() => import("./RequestHelpModal"));
 const FamilyStatusModal = dynamic(() => import("./FamilyStatusModal"));
+const ClosedRoadModal = dynamic(() => import("./ClosedRoadModal"));
 
 function MapBootScreen() {
   return (
@@ -140,6 +143,7 @@ function SheetHandle({
 interface HomeClientProps {
   initialReports: Report[];
   initialPoints: CollectionPoint[];
+  initialRoads?: ClosedRoad[];
   initialReportId?: string | null;
   dataError?: string | null;
 }
@@ -147,6 +151,7 @@ interface HomeClientProps {
 export default function HomeClient({
   initialReports,
   initialPoints,
+  initialRoads = [],
   initialReportId = null,
   dataError = null,
 }: HomeClientProps) {
@@ -159,6 +164,8 @@ export default function HomeClient({
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
+  const [roadModalOpen, setRoadModalOpen] = useState(false);
+  const [roads, setRoads] = useState<ClosedRoad[]>(initialRoads);
   const [isPending, startTransition] = useTransition();
   const [appliedInitialReportId, setAppliedInitialReportId] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("map");
@@ -172,6 +179,7 @@ export default function HomeClient({
   const skipNextRefetch = useRef(true);
 
   const isPointsView = category === "puntos_acopio";
+  const isRoadsView = category === "vias_cerradas";
 
   useEffect(() => {
     const fromProp = initialReportId;
@@ -288,6 +296,22 @@ export default function HomeClient({
         .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, () => refetch())
         .on(
           "postgres_changes",
+          { event: "*", schema: "public", table: "closed_roads" },
+          (payload) => {
+            if (payload.eventType === "INSERT" && payload.new) {
+              const next = payload.new as ClosedRoad;
+              setRoads((prev) => (prev.some((r) => r.id === next.id) ? prev : [next, ...prev]));
+            } else if (payload.eventType === "UPDATE" && payload.new) {
+              const next = payload.new as ClosedRoad;
+              setRoads((prev) => prev.map((r) => (r.id === next.id ? next : r)));
+            } else if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setRoads((prev) => prev.filter((r) => r.id !== id));
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
           { event: "INSERT", schema: "public", table: "comments" },
           (payload) => {
             const reportId = (payload.new as { report_id?: string }).report_id;
@@ -333,7 +357,8 @@ export default function HomeClient({
     if (
       !isSearching &&
       category !== "todos" &&
-      category !== "puntos_acopio"
+      category !== "puntos_acopio" &&
+      category !== "vias_cerradas"
     ) {
       base = base.filter((r) => r.category === category);
     }
@@ -386,6 +411,20 @@ export default function HomeClient({
     );
   }, [initialPoints, municipality, isSearching, debouncedSearchQuery]);
 
+  const mapRoads = useMemo(() => {
+    let base = roads.filter((road) => road.status === "cerrada");
+    if (municipality !== "todos") {
+      base = base.filter((road) => road.municipality === municipality);
+    }
+    if (!isSearching) return base;
+    return base.filter((road) =>
+      matchesHaystack(
+        `${road.name} ${road.note} ${CLOSED_ROAD_REASON_LABELS[road.reason]}`,
+        debouncedSearchQuery
+      )
+    );
+  }, [roads, municipality, isSearching, debouncedSearchQuery]);
+
   const mapPoints = isSearching || isPointsView ? visiblePoints : initialPoints.filter((p) =>
     municipality === "todos" ? true : p.municipality === municipality
   );
@@ -410,6 +449,17 @@ export default function HomeClient({
     setDebouncedSearchQuery("");
     setSheetMode("map");
     setReportModalOpen(false);
+  }
+
+  function handleReopenRoad(id: string) {
+    setRoads((prev) =>
+      prev.map((road) => (road.id === id ? { ...road, status: "reabierta" } : road))
+    );
+    void reopenClosedRoad(id).then((result) => {
+      if (result.success && result.data) {
+        setRoads((prev) => prev.map((road) => (road.id === result.data!.id ? result.data! : road)));
+      }
+    });
   }
 
   function handleSelectReport(id: string, expand = false) {
@@ -458,6 +508,7 @@ export default function HomeClient({
           <ReportsMap
             reports={isPointsView && !isSearching ? [] : visibleReports}
             points={mapPoints}
+            roads={mapRoads}
             places={isSearching ? mapPlaces : []}
             fitSearchResults={isSearching && !selectedPlaceId}
             selectedReportId={selectedReportId}
@@ -467,6 +518,8 @@ export default function HomeClient({
               handleSelectReport(id);
             }}
             onSelectPlace={setSelectedPlaceId}
+            onAddClosedRoad={() => setRoadModalOpen(true)}
+            onReopenRoad={handleReopenRoad}
           />
         ) : (
           <MapBootScreen />
@@ -537,10 +590,12 @@ export default function HomeClient({
             mode={sheetMode}
             count={
               isSearching
-                ? visibleReports.length + visiblePoints.length + mapPlaces.length
+                ? visibleReports.length + visiblePoints.length + mapPlaces.length + mapRoads.length
                 : isPointsView
                   ? visiblePoints.length
-                  : visibleReports.length
+                  : isRoadsView
+                    ? mapRoads.length
+                    : visibleReports.length
             }
             onMap={() => setSheetMode("map")}
             onPeek={() => setSheetMode("peek")}
@@ -565,6 +620,38 @@ export default function HomeClient({
           >
             {isPointsView && !isSearching ? (
               <CollectionPoints points={initialPoints} />
+            ) : isRoadsView && !isSearching ? (
+              <div className="space-y-2 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setRoadModalOpen(true)}
+                  className="flex min-h-11 w-full items-center justify-center rounded-2xl bg-carmine/90 text-[14px] font-semibold text-white"
+                >
+                  Marcar calle cerrada
+                </button>
+                {mapRoads.length === 0 ? (
+                  <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
+                    No hay vías cerradas publicadas. Márcalas tocando el mapa.
+                  </p>
+                ) : (
+                  mapRoads.map((road) => (
+                    <article key={road.id} className="rounded-2xl px-2 py-2">
+                      <p className="text-[13px] font-semibold text-ink">{road.name}</p>
+                      <p className="text-[11px] text-ink-soft">
+                        {CLOSED_ROAD_REASON_LABELS[road.reason]}
+                        {road.note ? ` · ${road.note}` : ""}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleReopenRoad(road.id)}
+                        className="mt-1 text-[11px] font-semibold text-forest underline underline-offset-2"
+                      >
+                        Ya se puede transitar
+                      </button>
+                    </article>
+                  ))
+                )}
+              </div>
             ) : (
               <>
                 {isSearching ? (
@@ -633,6 +720,22 @@ export default function HomeClient({
                     <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                     Buscando hospitales, clínicas y lugares en el mapa…
                   </p>
+                )}
+
+                {isSearching && mapRoads.length > 0 && (
+                  <div className="mb-3">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Vías cerradas · {mapRoads.length}
+                    </p>
+                    {mapRoads.map((road) => (
+                      <article key={road.id} className="rounded-2xl px-2 py-2">
+                        <p className="text-[13px] font-semibold text-ink">{road.name}</p>
+                        <p className="text-[11px] text-ink-soft">
+                          {CLOSED_ROAD_REASON_LABELS[road.reason]}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
                 )}
 
                 {isSearching && mapPlaces.length > 0 && (
@@ -714,7 +817,8 @@ export default function HomeClient({
                   !placesLoading &&
                   visibleReports.length === 0 &&
                   mapPlaces.length === 0 &&
-                  visiblePoints.length === 0 && (
+                  visiblePoints.length === 0 &&
+                  mapRoads.length === 0 && (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     {dataError
                       ? "No pudimos cargar los reportes."
@@ -785,6 +889,15 @@ export default function HomeClient({
         onCreated={handleReportCreated}
       />
       <FamilyStatusModal open={familyModalOpen} onClose={() => setFamilyModalOpen(false)} />
+      <ClosedRoadModal
+        open={roadModalOpen}
+        onClose={() => setRoadModalOpen(false)}
+        onCreated={(road) => {
+          setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
+          setCategory("vias_cerradas");
+          setSheetMode("peek");
+        }}
+      />
     </div>
   );
 }
