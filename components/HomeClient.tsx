@@ -435,18 +435,15 @@ export default function HomeClient({
   }, [initialPoints, municipality, isSearching, debouncedSearchQuery]);
 
   const visibleOffers = useMemo(() => {
-    let base = offers.filter((offer) => offer.status === "activa");
-    if (municipality !== "todos") {
-      base = base.filter((offer) => offer.municipality === municipality);
-    }
+    const base = offers.filter((offer) => offer.status === "activa");
     if (!isSearching) return base;
     return base.filter((offer) =>
       matchesHaystack(
-        `${offer.full_name} ${offer.description} ${HELP_SKILL_LABELS[offer.skill]} ${offer.municipality}`,
+        `${offer.full_name} ${offer.description} ${HELP_SKILL_LABELS[offer.skill]}`,
         debouncedSearchQuery
       )
     );
-  }, [offers, municipality, isSearching, debouncedSearchQuery]);
+  }, [offers, isSearching, debouncedSearchQuery]);
 
   const mapRoads = useMemo(() => {
     let base = roads.filter((road) => road.status === "cerrada");
@@ -705,7 +702,6 @@ export default function HomeClient({
             ) : isOffersView && !isSearching ? (
               <HelpOffers
                 offers={offers}
-                municipality={municipality}
                 onPublish={() => setOfferModalOpen(true)}
                 onSeeNeeds={handleWantsToHelp}
                 onHidden={(offer) =>
@@ -871,7 +867,6 @@ export default function HomeClient({
                     </p>
                     <HelpOffers
                       offers={visibleOffers}
-                      municipality="todos"
                       showCtas={false}
                       onPublish={() => setOfferModalOpen(true)}
                       onSeeNeeds={handleWantsToHelp}

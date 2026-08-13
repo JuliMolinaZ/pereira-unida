@@ -8,10 +8,8 @@ import {
   HELP_SKILL_EMOJI,
   HELP_SKILL_LABELS,
   HELP_SKILLS,
-  MUNICIPALITIES,
   type HelpOffer,
   type HelpSkill,
-  type Municipality,
 } from "@/lib/types";
 
 interface HelpOfferModalProps {
@@ -42,13 +40,11 @@ export default function HelpOfferModal({ open, onClose, onCreated }: HelpOfferMo
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [fullName, setFullName] = useState("");
   const [skill, setSkill] = useState<HelpSkill>("psicologia");
-  const [municipality, setMunicipality] = useState<Municipality>("Pereira");
 
   const [state, formAction, isPending] = useActionState(
     async (_prev: ActionResult<HelpOffer>, formData: FormData) => {
       formData.set("full_name", fullName);
       formData.set("skill", skill);
-      formData.set("municipality", municipality);
       const result = await createHelpOffer(formData);
       if (result.success && result.data) {
         onCreated(result.data);
@@ -108,8 +104,7 @@ export default function HelpOfferModal({ open, onClose, onCreated }: HelpOfferMo
         className="max-h-[min(82dvh,760px)] space-y-4 overflow-y-auto px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
         <p className="text-[13px] leading-snug text-ink-soft">
-          Publica tu oficio o profesión. Tu número queda visible para que te escriban
-          por WhatsApp.
+          Publica tu oficio o profesión. Te pueden escribir desde cualquier parte de la zona.
         </p>
 
         <div>
@@ -166,28 +161,6 @@ export default function HelpOfferModal({ open, onClose, onCreated }: HelpOfferMo
             placeholder={SKILL_HINT[skill]}
             className={cn(FIELD_CLASS, "resize-none")}
           />
-        </div>
-
-        <div>
-          <span className={LABEL_CLASS}>Municipio</span>
-          <div className="grid grid-cols-2 gap-1.5">
-            {MUNICIPALITIES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMunicipality(m)}
-                aria-pressed={municipality === m}
-                className={cn(
-                  "flex min-h-11 items-center justify-center rounded-2xl px-2 py-2.5 text-[13px] font-medium transition",
-                  municipality === m
-                    ? "bg-forest/90 text-white"
-                    : "bg-black/5 text-ink dark:bg-white/10"
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div>

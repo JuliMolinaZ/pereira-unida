@@ -1130,14 +1130,10 @@ export async function createHelpOffer(
   const skill = String(formData.get("skill") ?? "") as HelpSkill;
   const description = String(formData.get("description") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
-  const municipality = String(formData.get("municipality") ?? "") as Municipality;
 
   if (!fullName) return { success: false, error: "Escribe tu nombre." };
   if (!HELP_SKILLS.includes(skill)) {
     return { success: false, error: "Elige en qué puedes ayudar." };
-  }
-  if (!VALID_MUNICIPALITIES.includes(municipality)) {
-    return { success: false, error: "Municipio inválido." };
   }
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 7) {
@@ -1162,7 +1158,7 @@ export async function createHelpOffer(
       skill,
       description: description.slice(0, 280),
       phone,
-      municipality,
+      municipality: "Pereira",
       status: "activa",
     })
     .select()
