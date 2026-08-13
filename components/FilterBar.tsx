@@ -6,13 +6,19 @@ import {
   CATEGORY_COLORS,
   MUNICIPALITIES,
   MUNICIPALITY_COLORS,
+  OFFER_COLOR,
   QUICK_CATEGORY_FILTERS,
   type Municipality,
   type ReportCategory,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export type CategoryQuickFilter = ReportCategory | "todos" | "puntos_acopio" | "vias_cerradas";
+export type CategoryQuickFilter =
+  | ReportCategory
+  | "todos"
+  | "puntos_acopio"
+  | "vias_cerradas"
+  | "ofrezco";
 export type MunicipalityFilter = Municipality | "todos";
 export type TimeWindowFilter = "todas" | "6h";
 
@@ -75,6 +81,13 @@ export default function FilterBar({
         onClick={() => onCategoryChange("vias_cerradas")}
       >
         <span aria-hidden="true">🚧</span> Vías
+      </Chip>
+      <Chip
+        color={OFFER_COLOR}
+        active={category === "ofrezco"}
+        onClick={() => onCategoryChange("ofrezco")}
+      >
+        <span aria-hidden="true">🤝</span> Ofrezco
       </Chip>
 
       <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />

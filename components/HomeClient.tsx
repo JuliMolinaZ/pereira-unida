@@ -15,16 +15,17 @@ import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
 import { getReports, reopenClosedRoad } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { cn, googleMapsUrl } from "@/lib/utils";
+import { cn, googleMapsUrl, isReportFromLastHours, rememberMyOfferId } from "@/lib/utils";
 import {
   CATEGORY_LABELS,
   CLOSED_ROAD_REASON_LABELS,
+  HELP_SKILL_LABELS,
   isClosedStatus,
   type ClosedRoad,
   type CollectionPoint,
+  type HelpOffer,
   type Report,
 } from "@/lib/types";
-import { isReportFromLastHours } from "@/lib/utils";
 import {
   matchesHaystack,
   isCollectionPointSearch,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/places";
 import Header from "./Header";
 import BrandMark from "./BrandMark";
+import FlagLoader from "./FlagLoader";
 import ActionCards from "./ActionCards";
 import FilterBar, {
   type CategoryQuickFilter,
@@ -53,14 +55,13 @@ const CollectionPoints = dynamic(() => import("./CollectionPoints"));
 const RequestHelpModal = dynamic(() => import("./RequestHelpModal"));
 const FamilyStatusModal = dynamic(() => import("./FamilyStatusModal"));
 const ClosedRoadModal = dynamic(() => import("./ClosedRoadModal"));
+const HelpOfferModal = dynamic(() => import("./HelpOfferModal"));
+const HelpOffers = dynamic(() => import("./HelpOffers"));
 
 function MapBootScreen() {
   return (
     <div className="flex h-full w-full items-center justify-center bg-[#0e0e10]">
-      <div className="flex flex-col items-center gap-2 text-white/70">
-        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-        <span className="text-xs">Cargando mapa</span>
-      </div>
+      <FlagLoader caption="Cargando mapa" />
     </div>
   );
 }
@@ -144,6 +145,7 @@ interface HomeClientProps {
   initialReports: Report[];
   initialPoints: CollectionPoint[];
   initialRoads?: ClosedRoad[];
+  initialOffers?: HelpOffer[];
   initialReportId?: string | null;
   dataError?: string | null;
 }
@@ -152,6 +154,7 @@ export default function HomeClient({
   initialReports,
   initialPoints,
   initialRoads = [],
+  initialOffers = [],
   initialReportId = null,
   dataError = null,
 }: HomeClientProps) {
@@ -165,7 +168,9 @@ export default function HomeClient({
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
   const [roadModalOpen, setRoadModalOpen] = useState(false);
+  const [offerModalOpen, setOfferModalOpen] = useState(false);
   const [roads, setRoads] = useState<ClosedRoad[]>(initialRoads);
+  const [offers, setOffers] = useState<HelpOffer[]>(initialOffers);
   const [isPending, startTransition] = useTransition();
   const [appliedInitialReportId, setAppliedInitialReportId] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("map");
@@ -180,6 +185,7 @@ export default function HomeClient({
 
   const isPointsView = category === "puntos_acopio";
   const isRoadsView = category === "vias_cerradas";
+  const isOffersView = category === "ofrezco";
 
   useEffect(() => {
     const fromProp = initialReportId;
@@ -312,6 +318,22 @@ export default function HomeClient({
         )
         .on(
           "postgres_changes",
+          { event: "*", schema: "public", table: "help_offers" },
+          (payload) => {
+            if (payload.eventType === "INSERT" && payload.new) {
+              const next = payload.new as HelpOffer;
+              setOffers((prev) => (prev.some((o) => o.id === next.id) ? prev : [next, ...prev]));
+            } else if (payload.eventType === "UPDATE" && payload.new) {
+              const next = payload.new as HelpOffer;
+              setOffers((prev) => prev.map((o) => (o.id === next.id ? next : o)));
+            } else if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setOffers((prev) => prev.filter((o) => o.id !== id));
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
           { event: "INSERT", schema: "public", table: "comments" },
           (payload) => {
             const reportId = (payload.new as { report_id?: string }).report_id;
@@ -358,7 +380,8 @@ export default function HomeClient({
       !isSearching &&
       category !== "todos" &&
       category !== "puntos_acopio" &&
-      category !== "vias_cerradas"
+      category !== "vias_cerradas" &&
+      category !== "ofrezco"
     ) {
       base = base.filter((r) => r.category === category);
     }
@@ -410,6 +433,20 @@ export default function HomeClient({
       )
     );
   }, [initialPoints, municipality, isSearching, debouncedSearchQuery]);
+
+  const visibleOffers = useMemo(() => {
+    let base = offers.filter((offer) => offer.status === "activa");
+    if (municipality !== "todos") {
+      base = base.filter((offer) => offer.municipality === municipality);
+    }
+    if (!isSearching) return base;
+    return base.filter((offer) =>
+      matchesHaystack(
+        `${offer.full_name} ${offer.description} ${HELP_SKILL_LABELS[offer.skill]} ${offer.municipality}`,
+        debouncedSearchQuery
+      )
+    );
+  }, [offers, municipality, isSearching, debouncedSearchQuery]);
 
   const mapRoads = useMemo(() => {
     let base = roads.filter((road) => road.status === "cerrada");
@@ -469,12 +506,18 @@ export default function HomeClient({
 
   function handleWantsToHelp() {
     setPriorityMode(true);
-    if (isPointsView) setCategory("todos");
+    if (isPointsView || isRoadsView || isOffersView) setCategory("todos");
     setSheetMode("expanded");
     requestAnimationFrame(() => {
       const firstCard = document.querySelector('[id^="report-"]');
       firstCard?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+  }
+
+  function handleWantsToOffer() {
+    setPriorityMode(false);
+    setCategory("ofrezco");
+    setSheetMode("expanded");
   }
 
   const stats = useMemo(() => {
@@ -570,8 +613,9 @@ export default function HomeClient({
       >
         <ActionCards
           onReportClick={() => setReportModalOpen(true)}
-          onHelpClick={handleWantsToHelp}
+          onHelpClick={handleWantsToOffer}
           onFamilyClick={() => setFamilyModalOpen(true)}
+          helpActive={isOffersView}
         />
       </div>
 
@@ -590,12 +634,18 @@ export default function HomeClient({
             mode={sheetMode}
             count={
               isSearching
-                ? visibleReports.length + visiblePoints.length + mapPlaces.length + mapRoads.length
+                ? visibleReports.length +
+                  visiblePoints.length +
+                  mapPlaces.length +
+                  mapRoads.length +
+                  visibleOffers.length
                 : isPointsView
                   ? visiblePoints.length
                   : isRoadsView
                     ? mapRoads.length
-                    : visibleReports.length
+                    : isOffersView
+                      ? visibleOffers.length
+                      : visibleReports.length
             }
             onMap={() => setSheetMode("map")}
             onPeek={() => setSheetMode("peek")}
@@ -652,6 +702,16 @@ export default function HomeClient({
                   ))
                 )}
               </div>
+            ) : isOffersView && !isSearching ? (
+              <HelpOffers
+                offers={offers}
+                municipality={municipality}
+                onPublish={() => setOfferModalOpen(true)}
+                onSeeNeeds={handleWantsToHelp}
+                onHidden={(offer) =>
+                  setOffers((prev) => prev.map((item) => (item.id === offer.id ? offer : item)))
+                }
+              />
             ) : (
               <>
                 {isSearching ? (
@@ -804,6 +864,24 @@ export default function HomeClient({
                   </div>
                 )}
 
+                {isSearching && visibleOffers.length > 0 && (
+                  <div className="mb-3">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Quienes ayudan · {visibleOffers.length}
+                    </p>
+                    <HelpOffers
+                      offers={visibleOffers}
+                      municipality="todos"
+                      showCtas={false}
+                      onPublish={() => setOfferModalOpen(true)}
+                      onSeeNeeds={handleWantsToHelp}
+                      onHidden={(offer) =>
+                        setOffers((prev) => prev.map((item) => (item.id === offer.id ? offer : item)))
+                      }
+                    />
+                  </div>
+                )}
+
                 {isSearching && visiblePoints.length > 0 && (
                   <div className="mb-3">
                     <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
@@ -818,12 +896,13 @@ export default function HomeClient({
                   visibleReports.length === 0 &&
                   mapPlaces.length === 0 &&
                   visiblePoints.length === 0 &&
-                  mapRoads.length === 0 && (
+                  mapRoads.length === 0 &&
+                  visibleOffers.length === 0 && (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     {dataError
                       ? "No pudimos cargar los reportes."
                       : isSearching
-                        ? "No hay hospitales, acopios ni pedidos con esa búsqueda."
+                        ? "No hay hospitales, acopios, ofertas ni pedidos con esa búsqueda."
                         : timeWindow === "6h"
                           ? "No hay reportes de las últimas 6 horas."
                           : "No hay reportes con estos filtros."}
@@ -896,6 +975,16 @@ export default function HomeClient({
           setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
           setCategory("vias_cerradas");
           setSheetMode("peek");
+        }}
+      />
+      <HelpOfferModal
+        open={offerModalOpen}
+        onClose={() => setOfferModalOpen(false)}
+        onCreated={(offer) => {
+          rememberMyOfferId(offer.id);
+          setOffers((prev) => (prev.some((item) => item.id === offer.id) ? prev : [offer, ...prev]));
+          setCategory("ofrezco");
+          setSheetMode("expanded");
         }}
       />
     </div>

@@ -11,21 +11,25 @@ import {
   getSupabaseConfigError,
   SUPABASE_CONFIG_ERROR_MESSAGE,
 } from "@/lib/supabase/config";
-import type {
-  ClosedRoad,
-  ClosedRoadReason,
-  ClosedRoadStatus,
-  CollectionPoint,
-  Comment,
-  HomeData,
-  Municipality,
-  PeopleStatus,
-  PersonStatus,
-  Report,
-  ReportCategory,
-  ReportStatus,
-  RoadPoint,
-  UrgentLevel,
+import {
+  HELP_SKILLS,
+  type ClosedRoad,
+  type ClosedRoadReason,
+  type ClosedRoadStatus,
+  type CollectionPoint,
+  type Comment,
+  type HomeData,
+  type HelpOffer,
+  type HelpOfferStatus,
+  type HelpSkill,
+  type Municipality,
+  type PeopleStatus,
+  type PersonStatus,
+  type Report,
+  type ReportCategory,
+  type ReportStatus,
+  type RoadPoint,
+  type UrgentLevel,
 } from "@/lib/types";
 import {
   explainPhotoFailure,
@@ -101,6 +105,22 @@ function isMissingClosedRoadsTable(message: string | undefined): boolean {
     (lower.includes("schema cache") && lower.includes("closed"))
   );
 }
+
+function isMissingHelpOffersTable(message: string | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("help_offers") ||
+    (lower.includes("schema cache") && lower.includes("help_offers"))
+  );
+}
+
+const EMPTY_HOME = {
+  reports: [] as Report[],
+  points: [] as CollectionPoint[],
+  roads: [] as ClosedRoad[],
+  offers: [] as HelpOffer[],
+};
 
 export interface ActionResult<T = void> {
   success: boolean;
@@ -743,40 +763,44 @@ export async function getCollectionPoints(): Promise<CollectionPoint[]> {
  */
 export async function getHomeData(): Promise<HomeData> {
   const cfg = getSupabaseConfigError();
-  if (cfg) return { reports: [], points: [], roads: [], error: cfg };
+  if (cfg) return { ...EMPTY_HOME, error: cfg };
 
   const sb = getSupabaseOrError();
   if (!sb.client) {
-    return { reports: [], points: [], roads: [], error: sb.error };
+    return { ...EMPTY_HOME, error: sb.error };
   }
 
   try {
-    const [reportsPack, pointsRes, roadsRes] = await Promise.all([
+    const [reportsPack, pointsRes, roadsRes, offersRes] = await Promise.all([
       loadReports(sb.client),
       sb.client.from("collection_points").select("*").order("name", { ascending: true }),
       sb.client.from("closed_roads").select("*").order("created_at", { ascending: false }),
+      sb.client.from("help_offers").select("*").order("created_at", { ascending: false }),
     ]);
 
     const reports = reportsPack.rows;
     const points = (pointsRes.data ?? []) as CollectionPoint[];
     const roadsMissing = isMissingClosedRoadsTable(roadsRes.error?.message);
     const roads = roadsMissing ? [] : ((roadsRes.data ?? []) as ClosedRoad[]);
+    const offersMissing = isMissingHelpOffersTable(offersRes.error?.message);
+    const offers = offersMissing ? [] : ((offersRes.data ?? []) as HelpOffer[]);
     const rawError =
       reportsPack.error ??
       pointsRes.error?.message ??
       (roadsMissing ? null : roadsRes.error?.message) ??
+      (offersMissing ? null : offersRes.error?.message) ??
       null;
 
     if (rawError) {
       console.error("getHomeData error:", rawError);
-      return { reports, points, roads, error: classifyHomeDataError(rawError) };
+      return { reports, points, roads, offers, error: classifyHomeDataError(rawError) };
     }
 
-    return { reports, points, roads, error: null };
+    return { reports, points, roads, offers, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("getHomeData error:", message);
-    return { reports: [], points: [], roads: [], error: classifyHomeDataError(message) };
+    return { ...EMPTY_HOME, error: classifyHomeDataError(message) };
   }
 }
 
@@ -1097,6 +1121,85 @@ export async function reopenClosedRoad(
 
   revalidatePath("/");
   return { success: true, data: data as ClosedRoad };
+}
+
+export async function createHelpOffer(
+  formData: FormData
+): Promise<ActionResult<HelpOffer>> {
+  const fullName = String(formData.get("full_name") ?? "").trim();
+  const skill = String(formData.get("skill") ?? "") as HelpSkill;
+  const description = String(formData.get("description") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  const municipality = String(formData.get("municipality") ?? "") as Municipality;
+
+  if (!fullName) return { success: false, error: "Escribe tu nombre." };
+  if (!HELP_SKILLS.includes(skill)) {
+    return { success: false, error: "Elige en qué puedes ayudar." };
+  }
+  if (!VALID_MUNICIPALITIES.includes(municipality)) {
+    return { success: false, error: "Municipio inválido." };
+  }
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7) {
+    return { success: false, error: "Escribe un teléfono o WhatsApp válido." };
+  }
+
+  const allowed = await checkRateLimit("createHelpOffer", 5, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("help_offers")
+    .insert({
+      full_name: fullName.slice(0, 80),
+      skill,
+      description: description.slice(0, 280),
+      phone,
+      municipality,
+      status: "activa",
+    })
+    .select()
+    .single();
+
+  if (error) {
+    return {
+      success: false,
+      error: isMissingHelpOffersTable(error.message)
+        ? "Falta crear la tabla de ofertas de ayuda en Supabase (migración help_offers)."
+        : classifyHomeDataError(error.message),
+    };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: data as HelpOffer };
+}
+
+export async function hideHelpOffer(id: string): Promise<ActionResult<HelpOffer>> {
+  if (!UUID_RE.test(id)) return { success: false, error: "Oferta inválida." };
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("help_offers")
+    .update({ status: "ocultada" satisfies HelpOfferStatus })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return { success: false, error: classifyHomeDataError(error.message) };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: data as HelpOffer };
 }
 
 /**

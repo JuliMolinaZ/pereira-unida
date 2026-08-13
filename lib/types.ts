@@ -138,6 +138,7 @@ export const CATEGORY_COLORS: Record<ReportCategory, string> = {
 };
 
 export const ACOPIO_COLOR = "#c4a35a";
+export const OFFER_COLOR = "#2f6b4f";
 
 export const MUNICIPALITY_COLORS: Record<Municipality, string> = {
   Pereira: "#a61b1b",
@@ -296,6 +297,72 @@ export const CLOSED_ROAD_REASONS = Object.keys(
 export const ROAD_HAZARD_YELLOW = "#e2b340";
 export const ROAD_HAZARD_RED = "#a61b1b";
 
+export type HelpSkill =
+  | "psicologia"
+  | "medico"
+  | "enfermeria"
+  | "rescate"
+  | "ingenieria"
+  | "transporte"
+  | "oficios"
+  | "legal"
+  | "alimentacion"
+  | "otro";
+
+export type HelpOfferStatus = "activa" | "ocultada";
+
+export interface HelpOffer {
+  id: string;
+  full_name: string;
+  skill: HelpSkill;
+  description: string;
+  phone: string;
+  municipality: Municipality;
+  status: HelpOfferStatus;
+  created_at: string;
+}
+
+export const HELP_SKILL_LABELS: Record<HelpSkill, string> = {
+  psicologia: "Psicología",
+  medico: "Medicina",
+  enfermeria: "Enfermería",
+  rescate: "Rescate",
+  ingenieria: "Ingeniería",
+  transporte: "Transporte",
+  oficios: "Oficios",
+  legal: "Legal",
+  alimentacion: "Comida",
+  otro: "Otra ayuda",
+};
+
+export const HELP_SKILL_EMOJI: Record<HelpSkill, string> = {
+  psicologia: "🧠",
+  medico: "🩺",
+  enfermeria: "💉",
+  rescate: "⛑️",
+  ingenieria: "🏗️",
+  transporte: "🚚",
+  oficios: "🛠️",
+  legal: "⚖️",
+  alimentacion: "🍲",
+  otro: "🤝",
+};
+
+export const HELP_SKILL_COLORS: Record<HelpSkill, string> = {
+  psicologia: "#3b6ea5",
+  medico: "#a61b1b",
+  enfermeria: "#2f6b4f",
+  rescate: "#c2410c",
+  ingenieria: "#3b6ea5",
+  transporte: "#2f6b4f",
+  oficios: "#8a5a2b",
+  legal: "#4f6d7a",
+  alimentacion: "#c47a1b",
+  otro: "#4f6d7a",
+};
+
+export const HELP_SKILLS = Object.keys(HELP_SKILL_LABELS) as HelpSkill[];
+
 /** Enmascara un documento de identidad dejando solo los últimos 4 dígitos
  * visibles (privacidad en resultados de búsqueda pública). */
 export function maskDocumentId(id: string | null): string | null {
@@ -311,5 +378,6 @@ export interface HomeData {
   reports: Report[];
   points: CollectionPoint[];
   roads: ClosedRoad[];
+  offers: HelpOffer[];
   error: string | null;
 }

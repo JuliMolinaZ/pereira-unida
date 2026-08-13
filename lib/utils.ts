@@ -1,4 +1,4 @@
-import { type Report } from "./types";
+import { HELP_SKILL_LABELS, type HelpOffer, type Report } from "./types";
 
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.vercel.app";
@@ -37,6 +37,37 @@ export function shareToWhatsApp(report: Report): string {
 
   const text = encodeURIComponent(message);
   return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
+}
+
+/** Abre WhatsApp con quien ofreció su oficio o profesión. */
+export function shareToWhatsAppOffer(offer: HelpOffer): string {
+  const number = toWhatsAppNumber(offer.phone);
+  const skill = HELP_SKILL_LABELS[offer.skill];
+  const message = `Hola ${offer.full_name}, vi en Pereira Unida que ofreces ayuda de ${skill}. ¿Me puedes orientar?`;
+  const text = encodeURIComponent(message);
+  return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
+}
+
+const MY_OFFER_IDS_KEY = "pereiraunida:my-offer-ids";
+
+export function readMyOfferIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MY_OFFER_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberMyOfferId(id: string) {
+  if (typeof window === "undefined") return;
+  const next = Array.from(new Set([...readMyOfferIds(), id]));
+  window.localStorage.setItem(MY_OFFER_IDS_KEY, JSON.stringify(next));
 }
 
 /**

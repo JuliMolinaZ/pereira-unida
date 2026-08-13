@@ -430,3 +430,118 @@ dialog[open] {
 .pereira-map-popup .maplibregl-popup-tip {
   border-top-color: color-mix(in srgb, var(--glass) 60%, white);
 }
+
+/* ---------------------------------------------------------------------- */
+/* Bandera de Pereira Unida (pantalla de carga)                           */
+/* ---------------------------------------------------------------------- */
+.pu-flag {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  height: 64px;
+  transform-origin: left bottom;
+  animation: pu-flag-sway 2.8s ease-in-out infinite;
+}
+
+.pu-flag-pole {
+  position: relative;
+  z-index: 1;
+  width: 3px;
+  height: 72px;
+  border-radius: 999px;
+  background: linear-gradient(to bottom, #fff8f0, #c9bba8);
+  box-shadow: 0 0 10px rgba(240, 201, 76, 0.28);
+}
+
+.pu-flag-pole::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pereira-gold);
+  transform: translateX(-50%);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--pereira-gold) 75%, transparent);
+}
+
+.pu-flag-cloth {
+  position: relative;
+  display: flex;
+  height: 52px;
+  width: 84px;
+  overflow: hidden;
+  border-radius: 0 9px 9px 0;
+  box-shadow: 4px 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.pu-flag-cloth::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.38) 48%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: pu-flag-shine 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.pu-flag-cloth span {
+  flex: 1;
+  display: block;
+  background: linear-gradient(
+    to bottom,
+    var(--pereira-gold) 0 50%,
+    var(--pereira-red) 50% 100%
+  );
+  transform-origin: left center;
+  animation: pu-flag-wave 1.15s ease-in-out infinite;
+}
+
+@keyframes pu-flag-wave {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) skewY(0);
+  }
+  25% {
+    transform: translate3d(0, -5px, 0) skewY(-4deg);
+  }
+  50% {
+    transform: translate3d(0, 2px, 0) skewY(2deg);
+  }
+  75% {
+    transform: translate3d(0, -3px, 0) skewY(-2deg);
+  }
+}
+
+@keyframes pu-flag-sway {
+  0%,
+  100% {
+    transform: rotate(-1.6deg);
+  }
+  50% {
+    transform: rotate(1.8deg);
+  }
+}
+
+@keyframes pu-flag-shine {
+  0% {
+    background-position: 140% 0;
+  }
+  100% {
+    background-position: -40% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pu-flag,
+  .pu-flag-cloth span,
+  .pu-flag-cloth::after {
+    animation: none;
+  }
+}
