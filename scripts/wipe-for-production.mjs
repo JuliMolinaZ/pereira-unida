@@ -79,8 +79,45 @@ if (commentsError && !/does not exist|0 rows/i.test(commentsError.message)) {
   console.warn("comments:", commentsError.message);
 }
 
+async function emptySpacesPhotos() {
+  const key = process.env.SPACES_KEY;
+  const secret = process.env.SPACES_SECRET;
+  const bucket = process.env.SPACES_BUCKET;
+  const region = process.env.SPACES_REGION;
+  if (!key || !secret || !bucket || !region) return 0;
+  const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
+  const client = new S3Client({
+    region,
+    endpoint: process.env.SPACES_ENDPOINT || `https://${region}.digitaloceanspaces.com`,
+    credentials: { accessKeyId: key, secretAccessKey: secret },
+  });
+  let removed = 0;
+  let token;
+  do {
+    const listed = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: "photos/",
+        ContinuationToken: token,
+      })
+    );
+    const objects = listed.Contents?.map((item) => item.Key).filter(Boolean) ?? [];
+    if (objects.length > 0) {
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: objects.map((Key) => ({ Key })), Quiet: true },
+        })
+      );
+      removed += objects.length;
+    }
+    token = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+  } while (token);
+  return removed;
+}
+
 const removedPhotos =
-  (await emptyFolder("reports")) + (await emptyFolder("people"));
+  (await emptyFolder("reports")) + (await emptyFolder("people")) + (await emptySpacesPhotos());
 
 const after = {
   reports: await count("reports"),

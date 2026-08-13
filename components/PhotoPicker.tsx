@@ -120,7 +120,6 @@ export default function PhotoPicker({
   return (
     <div>
       <span className="mb-1.5 block text-[13px] font-medium text-ink-soft">{label}</span>
-      {hint ? <p className="mb-2 text-xs text-ink-soft">{hint}</p> : null}
 
       <input
         ref={cameraRef}

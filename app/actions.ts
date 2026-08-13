@@ -32,6 +32,7 @@ import {
   normalizePhotoUrls,
   PHOTO_BUCKET,
 } from "@/lib/photos";
+import { deleteSpaceObjects, isSpacesConfigured, uploadSpaceObject } from "@/lib/spaces";
 
 const VALID_CATEGORIES: ReportCategory[] = [
   "alimentos",
@@ -202,8 +203,9 @@ function photoContentType(kind: "jpeg" | "png" | "webp" | "heic"): string {
 }
 
 /**
- * Sube hasta 3 fotos al bucket público `community-photos` (Supabase Storage).
- * Vacío = ok (las fotos son opcionales). Si una es inválida, no sube ninguna.
+ * Sube hasta 3 fotos a DigitalOcean Spaces (CDN). Si Spaces no está
+ * configurado, cae a Supabase Storage. Vacío = ok. Si una es inválida,
+ * no deja ninguna.
  */
 async function uploadFormPhotos(
   client: SupabaseClient,
@@ -251,6 +253,30 @@ async function uploadFormPhotos(
         urls: [],
         error: "No se pudo leer una de las fotos. Prueba con otra JPEG o PNG.",
       };
+    }
+  }
+
+  if (isSpacesConfigured()) {
+    const urls: string[] = [];
+    const uploadedKeys: string[] = [];
+    try {
+      for (const { bytes, kind } of prepared) {
+        const key = `photos/${folder}/${crypto.randomUUID()}.${photoExtension(kind)}`;
+        const url = await uploadSpaceObject({
+          key,
+          body: bytes,
+          contentType: photoContentType(kind),
+        });
+        uploadedKeys.push(key);
+        urls.push(url);
+      }
+      return { urls };
+    } catch (err) {
+      if (uploadedKeys.length > 0) {
+        await deleteSpaceObjects(uploadedKeys).catch(() => undefined);
+      }
+      const message = err instanceof Error ? err.message : "No se pudo subir la foto.";
+      return { urls: [], error: explainPhotoFailure(message) };
     }
   }
 
@@ -421,6 +447,14 @@ export async function createReport(
     return {
       success: false,
       error: "Selecciona tu ubicación exacta con el GPS o en el mapa.",
+    };
+  }
+
+  const allowed = await checkRateLimit("createReport", 5, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
     };
   }
 
@@ -866,12 +900,33 @@ export async function getPeopleStatusByIds(
   }
 }
 
+function getAcopioSecrets(): string[] {
+  return [process.env.ACOPIO_SECRET, process.env.ACOPIO_PIN].filter(
+    (value): value is string => Boolean(value)
+  );
+}
+
+function matchesAcopioSecret(value: string): boolean {
+  return getAcopioSecrets().some((expected) => timingSafeStringEqual(value, expected));
+}
+
+/** Slug de la ruta secreta `/a/<slug>`. Prioriza ACOPIO_SECRET; si no, ACOPIO_PIN. */
+function getAcopioRouteSecret(): string | null {
+  return process.env.ACOPIO_SECRET || process.env.ACOPIO_PIN || null;
+}
+
+export async function isAcopioSecretValid(secret: string): Promise<boolean> {
+  const expected = getAcopioRouteSecret();
+  if (!expected) return false;
+  return timingSafeStringEqual(secret, expected);
+}
+
 /**
  * Indica si el alta de centros de acopio está habilitada en este
- * despliegue (ACOPIO_PIN configurado en el server), sin revelar el PIN.
+ * despliegue (ACOPIO_PIN o ACOPIO_SECRET), sin revelar el valor.
  */
 export async function isAcopioEnabled(): Promise<boolean> {
-  return Boolean(process.env.ACOPIO_PIN);
+  return getAcopioSecrets().length > 0;
 }
 
 /**
@@ -884,13 +939,12 @@ export async function isAcopioEnabled(): Promise<boolean> {
 export async function createCollectionPoint(
   formData: FormData
 ): Promise<ActionResult<CollectionPoint>> {
-  const configuredPin = process.env.ACOPIO_PIN;
-  if (!configuredPin) {
+  if (getAcopioSecrets().length === 0) {
     return { success: false, error: "Alta de acopio deshabilitada." };
   }
 
   const pin = String(formData.get("pin") ?? "");
-  if (!timingSafeStringEqual(pin, configuredPin)) {
+  if (!matchesAcopioSecret(pin)) {
     return { success: false, error: "PIN incorrecto." };
   }
 

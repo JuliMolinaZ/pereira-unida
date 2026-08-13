@@ -132,7 +132,6 @@ export default function HomeClient({
   dataError = null,
 }: HomeClientProps) {
   const [reports, setReports] = useState<Report[]>(initialReports);
-  const [points, setPoints] = useState<CollectionPoint[]>(initialPoints);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
   const [category, setCategory] = useState<CategoryQuickFilter>("todos");
   const [searchQuery, setSearchQuery] = useState("");
@@ -325,7 +324,7 @@ export default function HomeClient({
       <div className="absolute inset-0 z-0">
         <ReportsMap
           reports={visibleReports}
-          points={points}
+          points={initialPoints}
           selectedReportId={selectedReportId}
           onSelectReport={handleSelectReport}
         />
@@ -413,10 +412,7 @@ export default function HomeClient({
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
             {isPointsView ? (
-              <CollectionPoints
-                points={points}
-                onCreated={(point) => setPoints((prev) => [point, ...prev])}
-              />
+              <CollectionPoints points={initialPoints} />
             ) : (
               <>
                 <div className="mb-1.5 flex items-center gap-1 rounded-full bg-black/5 p-0.5">

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Clock,
@@ -11,10 +11,8 @@ import {
   Navigation,
   Package,
   Phone,
-  Plus,
-  X,
 } from "lucide-react";
-import { createCollectionPoint, isAcopioEnabled, type ActionResult } from "@/app/actions";
+import { createCollectionPoint, type ActionResult } from "@/app/actions";
 import { reverseGeocode } from "@/lib/geocode";
 import { cn, googleMapsUrl } from "@/lib/utils";
 import { MUNICIPALITIES, type CollectionPoint, type Municipality } from "@/lib/types";
@@ -26,7 +24,6 @@ const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
 
 interface CollectionPointsProps {
   points: CollectionPoint[];
-  onCreated?: (point: CollectionPoint) => void;
 }
 
 type MunicipalityFilter = "todos" | Municipality;
@@ -50,21 +47,15 @@ const FIELD_CLASS =
   "w-full rounded-2xl bg-black/5 px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-soft/60 focus:ring-2 focus:ring-forest/30 dark:bg-white/10";
 const LABEL_CLASS = "mb-1 block text-[12px] font-medium text-ink-soft";
 
-export default function CollectionPoints({ points, onCreated }: CollectionPointsProps) {
+export default function CollectionPoints({ points }: CollectionPointsProps) {
   const [allPoints, setAllPoints] = useState<CollectionPoint[]>(points);
   const [prevPoints, setPrevPoints] = useState(points);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
-  const [acopioEnabled, setAcopioEnabled] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
 
   if (points !== prevPoints) {
     setPrevPoints(points);
     setAllPoints(points);
   }
-
-  useEffect(() => {
-    isAcopioEnabled().then(setAcopioEnabled);
-  }, []);
 
   const filteredPoints = useMemo(
     () =>
@@ -73,12 +64,6 @@ export default function CollectionPoints({ points, onCreated }: CollectionPoints
         : allPoints.filter((p) => p.municipality === municipality),
     [allPoints, municipality]
   );
-
-  function handlePointCreated(point: CollectionPoint) {
-    setAllPoints((prev) => [point, ...prev]);
-    onCreated?.(point);
-    setFormOpen(false);
-  }
 
   return (
     <div>
@@ -105,26 +90,7 @@ export default function CollectionPoints({ points, onCreated }: CollectionPoints
             </button>
           ))}
         </div>
-
-        {acopioEnabled && (
-          <button
-            type="button"
-            onClick={() => setFormOpen((v) => !v)}
-            aria-expanded={formOpen}
-            className="flex shrink-0 items-center gap-1 rounded-full bg-black/5 px-3 py-2 text-[13px] font-medium text-ink dark:bg-white/10"
-          >
-            {formOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            Agregar
-          </button>
-        )}
       </div>
-
-      {formOpen && acopioEnabled && (
-        <CreatePointForm
-          onCreated={handlePointCreated}
-          onCancel={() => setFormOpen(false)}
-        />
-      )}
 
       {filteredPoints.length === 0 ? (
         <div className="mt-2 rounded-[22px] bg-black/5 px-4 py-8 text-center dark:bg-white/5">
@@ -212,12 +178,13 @@ export default function CollectionPoints({ points, onCreated }: CollectionPoints
 
 interface CreatePointFormProps {
   onCreated: (point: CollectionPoint) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
+  accessKey: string;
 }
 
 const initialState: ActionResult<CollectionPoint> = { success: false };
 
-function CreatePointForm({ onCreated, onCancel }: CreatePointFormProps) {
+export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
@@ -271,10 +238,15 @@ function CreatePointForm({ onCreated, onCancel }: CreatePointFormProps) {
       formData.set("lng", lng);
       formData.set("address", address);
       formData.set("municipality", municipality);
+      formData.set("pin", accessKey);
       const result = await createCollectionPoint(formData);
       if (result.success && result.data) {
         onCreated(result.data);
         formRef.current?.reset();
+        setLat("");
+        setLng("");
+        setAddress("");
+        setGeoStatus("idle");
       }
       return result;
     },
@@ -282,7 +254,7 @@ function CreatePointForm({ onCreated, onCancel }: CreatePointFormProps) {
   );
 
   return (
-    <form ref={formRef} action={formAction} className="glass mb-3 space-y-3 rounded-[22px] p-3">
+    <form ref={formRef} action={formAction} className="space-y-3">
       <div>
         <label htmlFor="acopio-name" className={LABEL_CLASS}>
           Nombre *
@@ -421,33 +393,22 @@ function CreatePointForm({ onCreated, onCancel }: CreatePointFormProps) {
         </div>
       </div>
 
-      <div>
-        <label htmlFor="acopio-pin" className={LABEL_CLASS}>
-          PIN de acopio *
-        </label>
-        <input
-          id="acopio-pin"
-          name="pin"
-          type="password"
-          required
-          autoComplete="off"
-          placeholder="PIN compartido por el equipo organizador"
-          className={FIELD_CLASS}
-        />
-      </div>
+      <input type="hidden" name="pin" value={accessKey} />
 
       {!state.success && state.error && (
         <p className="text-[12px] font-medium text-carmine">{state.error}</p>
       )}
 
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 rounded-full bg-black/5 py-2.5 text-[14px] font-medium text-ink dark:bg-white/10"
-        >
-          Cancelar
-        </button>
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-full bg-black/5 py-2.5 text-[14px] font-medium text-ink dark:bg-white/10"
+          >
+            Cancelar
+          </button>
+        ) : null}
         <button
           type="submit"
           disabled={isPending || !hasExactLocation}

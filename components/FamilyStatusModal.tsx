@@ -230,14 +230,9 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
 
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    else if (!open && dialog.open) dialog.close();
-  }, [open]);
+    if (!dialog || !open) return;
+    if (!dialog.open) dialog.showModal();
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
     function handleClose() {
       onClose();
       setRegisteredPerson(null);
@@ -262,7 +257,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
       dialog.removeEventListener("close", handleClose);
       dialog.removeEventListener("click", handleBackdropClick);
     };
-  }, [onClose]);
+  }, [open, onClose]);
 
   async function applyCoords(latitude: number, longitude: number) {
     const exactLat = latitude.toFixed(7);
@@ -325,11 +320,13 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
     });
   }
 
+  if (!open) return null;
+
   return (
     <dialog
       ref={dialogRef}
       aria-labelledby="family-status-title"
-      className="glass m-0 mt-auto w-full max-w-lg rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px] [&:not([open])]:hidden"
+      className="glass m-0 mt-auto w-full max-w-lg rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
     >
       <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-black/20 dark:bg-white/25" />
 

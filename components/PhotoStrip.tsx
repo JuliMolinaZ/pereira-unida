@@ -21,7 +21,7 @@ export default function PhotoStrip({ urls, alt, size = "sm" }: PhotoStripProps) 
           className="shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- fotos de usuario en CDN de Supabase */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- fotos de usuario en CDN (Spaces) */}
           <img
             src={url}
             alt={`${alt} ${index + 1}`}

@@ -162,18 +162,9 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
 
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (!dialog) return;
+    if (!dialog || !open) return;
 
-    if (open && !dialog.open) {
-      dialog.showModal();
-    } else if (!open && dialog.open) {
-      dialog.close();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
 
     function handleClose() {
       onClose();
@@ -191,13 +182,15 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
       dialog.removeEventListener("close", handleClose);
       dialog.removeEventListener("click", handleBackdropClick);
     };
-  }, [onClose]);
+  }, [open, onClose]);
+
+  if (!open) return null;
 
   return (
     <dialog
       ref={dialogRef}
       aria-labelledby="request-help-title"
-      className="glass m-0 mt-auto w-full max-w-lg rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px] [&:not([open])]:hidden"
+      className="glass m-0 mt-auto w-full max-w-lg rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
     >
       <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-black/20 dark:bg-white/25" />
 

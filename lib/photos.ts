@@ -71,11 +71,20 @@ export function explainPhotoFailure(raw: string): string {
     return "No se pudo enviar la foto. Prueba con una más liviana, con menos fotos, o toma otra.";
   }
   if (
+    lower.includes("spaces") ||
+    lower.includes("accessdenied") ||
+    lower.includes("invalidaccesskey") ||
+    lower.includes("signature") ||
+    lower.includes("s3")
+  ) {
+    return "No se pudo guardar la foto en el almacenamiento. Revisa las claves de DigitalOcean Spaces.";
+  }
+  if (
     lower.includes("bucket") ||
     lower.includes("not found") ||
     (lower.includes("does not exist") && lower.includes("storage"))
   ) {
-    return "Falta crear el bucket de fotos. Ejecuta schema.sql (migración de fotos) en Supabase.";
+    return "Falta configurar el almacenamiento de fotos (DigitalOcean Spaces o el bucket de Supabase).";
   }
   if (lower.includes("photo_urls") || lower.includes("schema cache")) {
     return "Falta aplicar schema.sql en el SQL Editor de Supabase (columna de fotos).";
@@ -87,7 +96,7 @@ export function explainPhotoFailure(raw: string): string {
     lower.includes("not allowed") ||
     lower.includes("new row violates")
   ) {
-    return "Supabase rechazó la foto (permisos de Storage). Revisa las policies del bucket community-photos.";
+    return "El almacenamiento rechazó la foto. Revisa permisos del bucket o las claves de Spaces.";
   }
   if (lower.includes("mime") || lower.includes("invalid file")) {
     return "Ese formato de foto no está permitido. Usa JPEG, PNG o WebP.";

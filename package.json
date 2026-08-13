@@ -10,6 +10,7 @@
     "postinstall": "mkdir -p public/maplibre && cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs public/maplibre/"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1109.0",
     "@supabase/supabase-js": "^2.112.3",
     "lucide-react": "^1.31.0",
     "maplibre-gl": "^6.3.0",

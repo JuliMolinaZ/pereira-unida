@@ -110,6 +110,14 @@ export default function Header({
                     <span className="font-semibold text-carmine">{line.number}</span>
                   </a>
                 ))}
+                <a
+                  href={DEV_INSTAGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-0.5 flex items-center justify-between rounded-2xl border-t border-ink/8 px-2.5 py-2.5 text-[13px] font-medium text-ink/70 transition active:bg-ink/8"
+                >
+                  Reportar error al programador
+                </a>
               </div>
             </>
           )}
@@ -121,9 +129,9 @@ export default function Header({
           href={DEV_INSTAGRAM_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[11px] font-medium text-ink/40 underline decoration-ink/20 underline-offset-2 transition hover:text-ink/65"
+          className="text-[11px] font-medium text-ink/55 underline decoration-ink/25 underline-offset-2 transition hover:text-ink/80"
         >
-          Reportar error al dev
+          Reportar error al programador
         </a>
       </div>
     </div>
