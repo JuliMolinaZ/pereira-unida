@@ -138,7 +138,7 @@ export default function ReportCard({
       id={anchor ? `report-${report.id}` : undefined}
       onClick={onSelect}
       className={cn(
-        "glass overflow-hidden rounded-[22px] p-3 transition",
+        "glass rounded-[22px] p-3 transition",
         onSelect && "cursor-pointer",
         selected && "ring-1 ring-carmine/40",
         closed && "opacity-80"
@@ -159,18 +159,20 @@ export default function ReportCard({
         </span>
       </div>
 
-      <h3 className="mt-0.5 line-clamp-2 text-[17px] leading-snug font-semibold text-ink">
+      <h3 className="mt-0.5 text-[17px] leading-snug font-semibold break-words text-ink">
         {report.title}
       </h3>
       {report.description ? (
-        <p className="mt-0.5 line-clamp-2 text-[13px] text-ink-soft">{report.description}</p>
+        <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words text-ink-soft">
+          {report.description}
+        </p>
       ) : null}
 
       <PhotoStrip urls={report.photo_urls} alt={report.title} />
 
-      <p className="mt-1 flex items-center gap-1 text-[13px] text-ink-soft">
-        <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className="line-clamp-1">
+      <p className="mt-1 flex items-start gap-1 text-[13px] text-ink-soft">
+        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 break-words">
           {report.location_name} · {report.municipality}
         </span>
       </p>

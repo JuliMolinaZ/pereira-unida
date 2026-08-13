@@ -556,7 +556,7 @@ export default function HomeClient({
             className="absolute inset-0 bg-black/25 lg:bg-black/40"
             onClick={() => setSelectedReportId(null)}
           />
-          <div className="relative z-10 flex max-h-[min(78dvh,680px)] w-full max-w-md flex-col px-0 lg:max-h-[min(82dvh,720px)]">
+          <div className="relative z-10 flex max-h-[min(86dvh,760px)] w-full max-w-md flex-col px-0 lg:max-h-[min(88dvh,820px)]">
             <div className="flex justify-end px-1 pb-1.5 lg:px-0 lg:pb-2">
               <button
                 type="button"
@@ -567,7 +567,7 @@ export default function HomeClient({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="min-h-0 overflow-y-auto overscroll-contain rounded-[22px] shadow-[0_16px_48px_rgba(15,10,8,0.28)]">
+            <div className="sheet-scroll min-h-0 overflow-y-auto overscroll-contain rounded-[22px] shadow-[0_16px_48px_rgba(15,10,8,0.28)]">
               <ReportCard
                 report={selectedReport}
                 selected
