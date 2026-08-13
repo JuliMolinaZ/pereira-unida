@@ -124,6 +124,19 @@ export function detectPlaceSearch(query: string): {
   return { amenities: [...amenities], extra: extra.join(" ") };
 }
 
+export function kindsForAmenities(amenities: string[]): Set<PlaceKind> {
+  const kinds = new Set<PlaceKind>();
+  for (const amenity of amenities) {
+    if (amenity === "hospital") kinds.add("hospital");
+    if (amenity === "clinic" || amenity === "doctors") kinds.add("clinic");
+    if (amenity === "pharmacy") kinds.add("pharmacy");
+    if (amenity === "fire_station") kinds.add("fire");
+    if (amenity === "police") kinds.add("police");
+    if (amenity === "shelter" || amenity === "social_facility") kinds.add("shelter");
+  }
+  return kinds;
+}
+
 export function kindFromOsmTags(tags: Record<string, string | undefined>): PlaceKind {
   const amenity = tags.amenity ?? "";
   const healthcare = tags.healthcare ?? "";
@@ -149,4 +162,87 @@ export function isCollectionPointSearch(query: string): boolean {
   return ["acopio", "acopios", "punto", "puntos"].some(
     (key) => q === key || q.includes(key)
   );
+}
+
+/** Sedes conocidas que OSM a veces no prioriza en Nominatim. */
+export const KNOWN_PLACES: MapPlace[] = [
+  {
+    id: "known-los-rosales",
+    name: "Clínica Los Rosales",
+    address: "Cra. 9 #25-25, Pereira",
+    lat: 4.81337,
+    lng: -75.69988,
+    kind: "clinic",
+  },
+  {
+    id: "known-san-jorge",
+    name: "Hospital Universitario San Jorge",
+    address: "Pereira",
+    lat: 4.81809,
+    lng: -75.69892,
+    kind: "hospital",
+  },
+  {
+    id: "known-comfamiliar",
+    name: "Clínica Comfamiliar Pereira",
+    address: "Pereira",
+    lat: 4.8067,
+    lng: -75.68081,
+    kind: "hospital",
+  },
+  {
+    id: "known-santa-monica",
+    name: "Hospital Santa Mónica",
+    address: "Dosquebradas",
+    lat: 4.8243,
+    lng: -75.67986,
+    kind: "hospital",
+  },
+  {
+    id: "known-san-rafael",
+    name: "Clínica San Rafael",
+    address: "Pereira",
+    lat: 4.80408,
+    lng: -75.6899,
+    kind: "hospital",
+  },
+  {
+    id: "known-cruz-roja",
+    name: "Cruz Roja Risaralda",
+    address: "Pereira",
+    lat: 4.80739,
+    lng: -75.6922,
+    kind: "shelter",
+  },
+];
+
+export function knownPlacesForQuery(query: string): MapPlace[] {
+  const { amenities, extra } = detectPlaceSearch(query);
+  const healthSearch = amenities.some((a) =>
+    ["hospital", "clinic", "doctors"].includes(a)
+  );
+  return KNOWN_PLACES.filter((place) => {
+    if (matchesHaystack(`${place.name} ${place.address}`, query)) return true;
+    if (!healthSearch) return false;
+    if (extra) return matchesHaystack(place.name, extra);
+    return place.kind === "hospital" || place.kind === "clinic" || place.kind === "shelter";
+  });
+}
+
+export function rankPlaces(places: MapPlace[], query: string): MapPlace[] {
+  const needle = foldSearch(query);
+  const words = needle.split(" ").filter(Boolean);
+  const score = (place: MapPlace) => {
+    const name = foldSearch(place.name);
+    let value = 40;
+    if (name === needle) value = 0;
+    else if (needle && name.includes(needle)) value = 4;
+    else if (words.length > 0 && words.every((word) => name.includes(word))) value = 8;
+    else if (matchesHaystack(`${place.name} ${place.address}`, query)) value = 16;
+    if (place.id.startsWith("known-")) value -= 1;
+    if (place.kind === "hospital" || place.kind === "clinic") value -= 2;
+    if (place.name === PLACE_KIND_LABEL[place.kind]) value += 24;
+    return value;
+  };
+  return [...places].sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name, "es"));
 }

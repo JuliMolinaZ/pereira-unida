@@ -197,7 +197,7 @@ export default function HomeClient({
   useEffect(() => {
     const timeout = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.replace(/[%_,]/g, " ").trim());
-    }, 300);
+    }, 450);
     return () => clearTimeout(timeout);
   }, [searchQuery]);
 
@@ -268,7 +268,7 @@ export default function HomeClient({
         .finally(() => {
           if (!cancelled) setPlacesLoading(false);
         });
-    }, 50);
+    }, 400);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

@@ -282,12 +282,9 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
           locationName: geo.displayName,
           municipality: geo.municipality,
         };
-      } else {
-        setLocationName("Ubicación exacta");
       }
       setGeoStatus("success");
     } catch {
-      setLocationName("Ubicación exacta");
       setGeoStatus("success");
     }
   }

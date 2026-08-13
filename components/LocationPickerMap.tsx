@@ -92,7 +92,7 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
         .finally(() => {
           if (!cancelled) setSearching(false);
         });
-    }, 280);
+    }, 400);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

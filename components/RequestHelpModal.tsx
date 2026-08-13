@@ -100,12 +100,9 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
           locationName: geo.displayName,
           municipality: geo.municipality,
         };
-      } else {
-        setLocationName("Ubicación exacta");
       }
       setGeoStatus("success");
     } catch {
-      setLocationName("Ubicación exacta");
       setGeoStatus("success");
     }
   }

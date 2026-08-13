@@ -1,53 +1,43 @@
 import type { Municipality } from "./types";
 
-interface NominatimAddress {
-  road?: string;
-  neighbourhood?: string;
-  suburb?: string;
-  city?: string;
-  town?: string;
-  village?: string;
-  municipality?: string;
-  county?: string;
+interface ReverseGeo {
+  displayName: string;
+  municipality: Municipality;
 }
 
-interface NominatimReverse {
-  display_name?: string;
-  address?: NominatimAddress;
-}
+let inflight: AbortController | null = null;
 
 /**
- * Reverse geocode gratis (Nominatim / OpenStreetMap). Solo se llama al
- * pulsar "Usar mi ubicación"; respeta el uso ocasional de Nominatim.
+ * Reverse geocode vía nuestra API (cacheada). No llama a Nominatim
+ * desde el navegador para no disparar 429 Too Many Requests.
  */
 export async function reverseGeocode(
   lat: number,
   lng: number
-): Promise<{ displayName: string; municipality: Municipality } | null> {
-  const url = new URL("https://nominatim.openstreetmap.org/reverse");
-  url.searchParams.set("lat", String(lat));
-  url.searchParams.set("lon", String(lng));
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("accept-language", "es");
-
-  const res = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) return null;
-
-  const data = (await res.json()) as NominatimReverse;
-  const haystack = `${data.display_name ?? ""} ${JSON.stringify(data.address ?? {})}`.toLowerCase();
-  const municipality: Municipality = haystack.includes("dosquebradas")
-    ? "Dosquebradas"
-    : "Pereira";
-
-  const addr = data.address;
-  const displayName =
-    [addr?.road, addr?.neighbourhood ?? addr?.suburb, addr?.city ?? addr?.town ?? addr?.village]
-      .filter(Boolean)
-      .join(", ") || data.display_name;
-
-  if (!displayName) return null;
-  return { displayName, municipality };
+): Promise<ReverseGeo | null> {
+  inflight?.abort();
+  const controller = new AbortController();
+  inflight = controller;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(resolve, 350);
+      controller.signal.addEventListener(
+        "abort",
+        () => {
+          window.clearTimeout(timer);
+          reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+        },
+        { once: true }
+      );
+    });
+    const url = `/api/geocode?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as ReverseGeo | null;
+    if (!data?.displayName) return null;
+    return data;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") return null;
+    return null;
+  }
 }
