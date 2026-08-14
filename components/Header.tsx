@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, MapPin, Phone, Search, X } from "lucide-react";
+import { MapPin, Phone, Search, X } from "lucide-react";
 import BrandMark from "./BrandMark";
 import { EMERGENCY_HOTLINES } from "@/lib/emergency";
 import { SUPPORT_INSTAGRAM_URL, SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "@/lib/support";
@@ -27,9 +27,9 @@ export default function Header({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center">
+      <div className="flex items-center gap-1.5">
         <div
-          className="glass relative flex min-w-0 items-center overflow-hidden rounded-full py-1 pr-2.5 pl-1 lg:py-1.5 lg:pr-3.5 lg:pl-1.5"
+          className="glass relative flex shrink-0 items-center overflow-hidden rounded-full py-1 pr-2.5 pl-1 lg:py-1.5 lg:pr-3.5 lg:pl-1.5"
           aria-label="Pereira Unida"
         >
           <span
@@ -45,25 +45,19 @@ export default function Header({
             wordmarkClassName="text-[13px] lg:text-[16px]"
           />
         </div>
+        <button
+          type="button"
+          onClick={onCityClick}
+          aria-label={`Estás en ${cityName}. Cambiar ciudad`}
+          className="glass flex h-11 min-w-0 flex-1 items-center gap-1.5 rounded-full px-3 text-left"
+        >
+          <MapPin className="h-4 w-4 shrink-0 text-carmine" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">
+            {cityName}
+          </span>
+          <span className="shrink-0 text-[12px] font-semibold text-carmine">Cambiar</span>
+        </button>
       </div>
-
-      <button
-        type="button"
-        onClick={onCityClick}
-        aria-label={`Estás en ${cityName}. Cambiar ciudad`}
-        className="glass flex min-h-11 w-full items-center gap-2 rounded-full px-3.5 text-left"
-      >
-        <MapPin className="h-5 w-5 shrink-0 text-carmine" aria-hidden="true" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-semibold text-ink">
-            Estás en {cityName}
-          </span>
-          <span className="block text-[11px] font-medium text-ink-soft">
-            Las ayudas de esta ciudad · Toca para cambiar
-          </span>
-        </span>
-        <ChevronRight className="h-5 w-5 shrink-0 text-ink/45" aria-hidden="true" />
-      </button>
 
       <div className="flex items-center gap-1.5">
         <label className="glass flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full pr-2.5 pl-3.5">
@@ -73,16 +67,22 @@ export default function Header({
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchQueryChange(e.target.value)}
-            placeholder="Buscar hospital, clínica, barrio…"
+            placeholder="Buscar barrio, hospital…"
             className="min-w-0 flex-1 bg-transparent text-[15px] font-medium text-ink outline-none placeholder:text-ink/45"
           />
-          <span className="flex shrink-0 items-center gap-1.5 border-l border-ink/10 pl-2.5 text-[11px] font-medium whitespace-nowrap text-ink/70">
+          <span className="flex shrink-0 items-center gap-1.5 border-l border-ink/10 pl-2 text-[11px] font-medium text-ink/70">
             <span className="relative flex h-1.5 w-1.5 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-forest opacity-70" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-forest" />
             </span>
-            {liveCount} activos
-            {criticalCount > 0 && <span className="text-carmine">· {criticalCount} críticos</span>}
+            <span className="tabular-nums">{liveCount}</span>
+            <span className="hidden min-[420px]:inline">activos</span>
+            {criticalCount > 0 ? (
+              <span className="text-carmine">
+                · {criticalCount}
+                <span className="hidden min-[420px]:inline"> críticos</span>
+              </span>
+            ) : null}
           </span>
         </label>
 
