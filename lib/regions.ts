@@ -165,18 +165,29 @@ export function suggestedCities(): AppCity[] {
   return QUICK_CITY_IDS.map((id) => cityById(id));
 }
 
+const COUNTRY_QUERIES = [
+  "colombia",
+  "pais",
+  "el pais",
+  "todo el pais",
+  "toda colombia",
+  "todo colombia",
+  "colombia completa",
+  "ver colombia",
+  "ver colombia completa",
+];
+
+function matchesCountryQuery(q: string): boolean {
+  if (COUNTRY_QUERIES.includes(q)) return true;
+  if (q.length < 4) return false;
+  return COUNTRY_QUERIES.some((alias) => alias.startsWith(q));
+}
+
 /** Busca ciudades por nombre. Si escribes un departamento, salen sus ciudades. */
 export function searchCities(query: string, limit = 24): AppCity[] {
   const q = fold(query);
   if (!q) return suggestedCities();
-  if (
-    q === "colombia" ||
-    q === "pais" ||
-    q === "el pais" ||
-    q === "todo el pais" ||
-    q === "toda colombia" ||
-    q === "colombia completa"
-  ) {
+  if (matchesCountryQuery(q)) {
     return [NATIONAL_CITY];
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Earth, MapPin, Phone, Search, X } from "lucide-react";
+import { MapPin, Phone, Search, X } from "lucide-react";
 import BrandMark from "./BrandMark";
 import { EMERGENCY_HOTLINES } from "@/lib/emergency";
 import { SUPPORT_INSTAGRAM_URL, SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "@/lib/support";
@@ -13,9 +13,6 @@ interface HeaderProps {
   onSearchQueryChange: (value: string) => void;
   cityName: string;
   onCityClick: () => void;
-  nationwide?: boolean;
-  nationalActive?: number | null;
-  onSeeCountry?: () => void;
 }
 
 export default function Header({
@@ -25,9 +22,6 @@ export default function Header({
   onSearchQueryChange,
   cityName,
   onCityClick,
-  nationwide = false,
-  nationalActive = null,
-  onSeeCountry,
 }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -64,30 +58,6 @@ export default function Header({
           <span className="shrink-0 text-[12px] font-semibold text-carmine">Cambiar</span>
         </button>
       </div>
-
-      {!nationwide && onSeeCountry ? (
-        <button
-          type="button"
-          onClick={onSeeCountry}
-          aria-label="Ver solicitudes de todo Colombia"
-          className="glass flex h-10 w-full items-center gap-2 rounded-full px-3 text-left"
-        >
-          <Earth className="h-4 w-4 shrink-0 text-forest" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
-            Colombia
-            {nationalActive != null ? (
-              <>
-                {" · "}
-                <span className="tabular-nums">{nationalActive}</span>
-                {nationalActive === 1 ? " activa en el país" : " activas en el país"}
-              </>
-            ) : (
-              " · ver todo el país"
-            )}
-          </span>
-          <span className="shrink-0 text-[12px] font-semibold text-forest">Ver</span>
-        </button>
-      ) : null}
 
       <div className="flex items-center gap-1.5">
         <label className="glass flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full pr-2.5 pl-3.5">

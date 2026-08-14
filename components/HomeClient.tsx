@@ -12,8 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
-import { getHomeData, getNationalOverview, getReports, reopenClosedRoad } from "@/app/actions";
-import type { NationalOverview } from "@/app/actions";
+import { getHomeData, getReports, reopenClosedRoad } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { cn, googleMapsUrl, isReportFromLastHours, rememberMyOfferId, rememberMyRentalId } from "@/lib/utils";
@@ -57,7 +56,6 @@ import {
   isDefaultZone,
   isNationwide,
   isRisaraldaMetro,
-  NATIONAL_CITY,
   placesSearchUrl,
   readCityChosen,
   readSavedCity,
@@ -188,7 +186,6 @@ export default function HomeClient({
   const [reports, setReports] = useState<Report[]>(initialReports);
   const [points, setPoints] = useState<CollectionPoint[]>(initialPoints);
   const [city, setCity] = useState<AppCity>(() => cityById(DEFAULT_CITY_ID));
-  const [nationalOverview, setNationalOverview] = useState<NationalOverview | null>(null);
   const [departmentFocus, setDepartmentFocus] = useState<string>("todos");
   const [zoneReady, setZoneReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -297,28 +294,16 @@ export default function HomeClient({
     lastFetchedZone.current = key;
     skipNextRefetch.current = true;
     startTransition(async () => {
-      const [data, overview] = await Promise.all([getHomeData(zone), getNationalOverview()]);
+      const data = await getHomeData(zone);
       setReports(data.reports);
       setPoints(data.points);
       setRoads(data.roads ?? []);
       setOffers(data.offers ?? []);
       setRentals(data.rentals ?? []);
-      setNationalOverview(overview);
       setMunicipality("todos");
       setDepartmentFocus("todos");
     });
   }, [city, zoneReady]);
-
-  useEffect(() => {
-    if (!zoneReady) return;
-    let cancelled = false;
-    getNationalOverview().then((overview) => {
-      if (!cancelled) setNationalOverview(overview);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [zoneReady]);
 
   useEffect(() => {
     if (!isRentalsView || !zoneReady || rentals.length > 0) return;
@@ -368,8 +353,6 @@ export default function HomeClient({
         !!currentSelectedId &&
         initialReports.some((r) => r.id === currentSelectedId);
       setReports(lostSelectedReport ? initialReports : data);
-      const overview = await getNationalOverview();
-      setNationalOverview(overview);
     });
   }, [initialReports]);
 
@@ -874,9 +857,6 @@ export default function HomeClient({
           onSearchQueryChange={setSearchQuery}
           cityName={city.name}
           onCityClick={() => openCityPicker()}
-          nationwide={nationwide}
-          nationalActive={nationalOverview?.active ?? null}
-          onSeeCountry={() => handleCityPicked(NATIONAL_CITY)}
         />
 
         {dataError && (

@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, LocateFixed, Search, X, Earth } from "lucide-react";
+import { Loader2, LocateFixed, Search, X } from "lucide-react";
 import {
   cityAt,
-  isNationwide,
-  NATIONAL_CITY,
   searchCities,
   suggestedCities,
   type AppCity,
@@ -150,19 +148,6 @@ export default function RegionPicker({
           )}
           {geoStatus === "loading" ? "Buscando tu ubicación…" : "Detectar mi ciudad"}
         </button>
-        <button
-          type="button"
-          onClick={() => pick(NATIONAL_CITY)}
-          className={cn(
-            "mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-3 text-[16px] font-semibold",
-            isNationwide(currentId)
-              ? "bg-forest text-white"
-              : "bg-forest/12 text-forest"
-          )}
-        >
-          <Earth className="h-5 w-5" aria-hidden="true" />
-          Ver Colombia completa
-        </button>
 
         <label className="mt-2 flex min-h-12 items-center gap-2 rounded-2xl bg-black/5 px-3.5 dark:bg-white/10">
           <Search className="h-5 w-5 shrink-0 text-ink/50" aria-hidden="true" />
@@ -170,7 +155,7 @@ export default function RegionPicker({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Escribe tu ciudad"
+            placeholder="Escribe tu ciudad o Colombia"
             enterKeyHint="search"
             autoComplete="off"
             autoCorrect="off"
@@ -184,7 +169,7 @@ export default function RegionPicker({
           </p>
         ) : (
           <p className="mt-2 text-[12px] leading-snug text-ink-soft">
-            O escribe el departamento: Chocó, Valle, Risaralda…
+            O el departamento (Chocó, Valle…) o Colombia para ver todo el país.
           </p>
         )}
       </div>

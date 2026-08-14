@@ -37,7 +37,7 @@ function around(lat: number, lng: number, pad: number): GeoBBox {
 
 export const NATIONAL_CITY: AppCity = {
   id: NATIONAL_CITY_ID,
-  name: "Colombia completa",
+  name: "Colombia",
   department: "Todo el país",
   center: [4.57, -74.3],
   bbox: { south: -4.3, west: -81.85, north: 13.6, east: -66.7 },
@@ -127,7 +127,10 @@ export function readSavedCity(): AppCity {
     const snap = window.localStorage.getItem(ZONE_CITY_KEY);
     if (snap) {
       const parsed = JSON.parse(snap) as unknown;
-      if (isAppCity(parsed)) return parsed;
+      if (isAppCity(parsed)) {
+        if (parsed.id === NATIONAL_CITY_ID) return NATIONAL_CITY;
+        return parsed;
+      }
     }
     const id = window.localStorage.getItem(ZONE_KEY);
     if (id && CORE_BY_ID.has(id)) return CORE_BY_ID.get(id)!;
