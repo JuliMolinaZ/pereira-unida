@@ -8,6 +8,14 @@ import { reverseGeocode } from "@/lib/geocode";
 import { cn } from "@/lib/utils";
 import { explainPhotoFailure } from "@/lib/photos";
 import PhotoPicker from "./PhotoPicker";
+import CityBanner from "./CityBanner";
+import {
+  cityById,
+  DEFAULT_CITY_ID,
+  isRisaraldaMetro,
+  municipalityForPin,
+  type AppCity,
+} from "@/lib/regions";
 import {
   CATEGORY_DESCRIPTIONS,
   CATEGORY_EMOJI,
@@ -32,6 +40,8 @@ interface RequestHelpModalProps {
   open: boolean;
   onClose: () => void;
   onCreated: (report: Report) => void;
+  city?: AppCity;
+  onChangeCity?: () => void;
 }
 
 const initialState: ActionResult<Report> = { success: false };
@@ -42,14 +52,20 @@ const FIELD_CLASS =
   "w-full rounded-2xl bg-black/5 px-4 py-3.5 text-base text-ink outline-none placeholder:text-ink-soft/60 focus:ring-2 focus:ring-carmine/30 dark:bg-white/10";
 const LABEL_CLASS = "mb-1.5 block text-[13px] font-medium text-ink-soft";
 
-export default function RequestHelpModal({ open, onClose, onCreated }: RequestHelpModalProps) {
+export default function RequestHelpModal({
+  open,
+  onClose,
+  onCreated,
+  city = cityById(DEFAULT_CITY_ID),
+  onChangeCity,
+}: RequestHelpModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [locationName, setLocationName] = useState("");
-  const [municipality, setMunicipality] = useState<Municipality>("Pereira");
+  const [municipality, setMunicipality] = useState<Municipality>(() => municipalityForPin(city));
   const [category, setCategory] = useState<ReportCategory>("alimentos");
   const [urgency, setUrgency] = useState<UrgentLevel>("moderado");
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
@@ -60,6 +76,10 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
   const locationRef = useRef({ lat, lng, locationName, category, municipality, urgency });
   locationRef.current = { lat, lng, locationName, category, municipality, urgency };
 
+  useEffect(() => {
+    setMunicipality(municipalityForPin(city));
+  }, [city]);
+
   const hasExactLocation = Boolean(lat && lng);
 
   function resetForm() {
@@ -67,7 +87,7 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
     setLat("");
     setLng("");
     setLocationName("");
-    setMunicipality("Pereira");
+    setMunicipality(municipalityForPin(city));
     setCategory("alimentos");
     setUrgency("moderado");
     setGeoStatus("idle");
@@ -94,11 +114,11 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
       const geo = await reverseGeocode(latitude, longitude);
       if (geo) {
         setLocationName(geo.displayName);
-        setMunicipality(geo.municipality);
+        setMunicipality(municipalityForPin(city, geo.municipality));
         locationRef.current = {
           ...locationRef.current,
           locationName: geo.displayName,
-          municipality: geo.municipality,
+          municipality: municipalityForPin(city, geo.municipality),
         };
       }
       setGeoStatus("success");
@@ -112,6 +132,7 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
       const loc = locationRef.current;
       formData.set("category", loc.category);
       formData.set("municipality", loc.municipality);
+      formData.set("department", city.department);
       formData.set("urgent_level", loc.urgency);
       formData.set("lat", loc.lat);
       formData.set("lng", loc.lng);
@@ -210,8 +231,11 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
         action={formAction}
         className="max-h-[min(82dvh,720px)] space-y-4 overflow-y-auto px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
+        <CityBanner city={city} action="pedir" onChange={onChangeCity} />
         <input type="hidden" name="lat" value={lat} />
         <input type="hidden" name="lng" value={lng} />
+        <input type="hidden" name="municipality" value={municipality} />
+        <input type="hidden" name="department" value={city.department} />
 
         <div>
           <label htmlFor="title" className={LABEL_CLASS}>
@@ -314,6 +338,10 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
                 lat={lat ? Number(lat) : null}
                 lng={lng ? Number(lng) : null}
                 onPick={applyCoords}
+                cityId={city.id}
+                cityName={city.name}
+                centerLat={city.center[0]}
+                centerLng={city.center[1]}
               />
               {hasExactLocation && (
                 <p className="mt-1.5 text-xs text-ink-soft">
@@ -343,22 +371,26 @@ export default function RequestHelpModal({ open, onClose, onCreated }: RequestHe
             </p>
           )}
 
-          <div className="mt-2 flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
-            {MUNICIPALITIES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMunicipality(m)}
-                aria-pressed={municipality === m}
-                className={cn(
-                  "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
-                  municipality === m ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
-                )}
-              >
-                📍 {m}
-              </button>
-            ))}
-          </div>
+          {isRisaraldaMetro(city) ? (
+            <div className="mt-2 flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
+              {MUNICIPALITIES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMunicipality(m)}
+                  aria-pressed={municipality === m}
+                  className={cn(
+                    "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
+                    municipality === m ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
+                  )}
+                >
+                  📍 {m}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-[13px] font-medium text-ink-soft">Ciudad: {city.name}</p>
+          )}
         </div>
 
         <div>

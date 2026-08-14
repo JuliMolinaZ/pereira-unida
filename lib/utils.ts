@@ -1,4 +1,4 @@
-import { HELP_SKILL_LABELS, type HelpOffer, type Report } from "./types";
+import { HELP_SKILL_LABELS, type HelpOffer, type Rental, type Report } from "./types";
 
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.vercel.app";
@@ -68,6 +68,52 @@ export function rememberMyOfferId(id: string) {
   if (typeof window === "undefined") return;
   const next = Array.from(new Set([...readMyOfferIds(), id]));
   window.localStorage.setItem(MY_OFFER_IDS_KEY, JSON.stringify(next));
+}
+
+const MY_RENTAL_IDS_KEY = "pereiraunida:my-rental-ids";
+
+export function readMyRentalIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MY_RENTAL_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberMyRentalId(id: string) {
+  if (typeof window === "undefined") return;
+  const next = Array.from(new Set([...readMyRentalIds(), id]));
+  window.localStorage.setItem(MY_RENTAL_IDS_KEY, JSON.stringify(next));
+}
+
+export function formatCop(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) return "Precio a convenir";
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+export function parseContactPhones(contact: string): string[] {
+  const matches = contact.match(/\d{7,}/g) ?? [];
+  return Array.from(new Set(matches));
+}
+
+export function shareToWhatsAppRental(rental: Rental): string {
+  const phones = parseContactPhones(rental.contact);
+  const number = phones[0] ? toWhatsAppNumber(phones[0]) : null;
+  const place = [rental.neighborhood, rental.address].filter(Boolean).join(" · ");
+  const price = formatCop(rental.monthly_rent);
+  const message = `Hola, vi en Pereira Unida el ${rental.property_type.toLowerCase()} en ${place} (${price}). ¿Sigue disponible?`;
+  const text = encodeURIComponent(message);
+  return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
 }
 
 /**

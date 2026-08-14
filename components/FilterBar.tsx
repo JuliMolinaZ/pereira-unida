@@ -18,7 +18,8 @@ export type CategoryQuickFilter =
   | "todos"
   | "puntos_acopio"
   | "vias_cerradas"
-  | "ofrezco";
+  | "ofrezco"
+  | "arriendos";
 export type MunicipalityFilter = Municipality | "todos";
 export type TimeWindowFilter = "todas" | "6h";
 
@@ -29,6 +30,7 @@ interface FilterBarProps {
   onCategoryChange: (value: CategoryQuickFilter) => void;
   timeWindow: TimeWindowFilter;
   onTimeWindowChange: (value: TimeWindowFilter) => void;
+  showMetroChips?: boolean;
 }
 
 export default function FilterBar({
@@ -38,6 +40,7 @@ export default function FilterBar({
   onCategoryChange,
   timeWindow,
   onTimeWindowChange,
+  showMetroChips = true,
 }: FilterBarProps) {
   return (
     <div
@@ -45,18 +48,21 @@ export default function FilterBar({
       role="tablist"
       aria-label="Filtros de municipio, categoría y tiempo"
     >
-      {MUNICIPALITIES.map((m) => (
-        <Chip
-          key={m}
-          color={MUNICIPALITY_COLORS[m]}
-          active={municipality === m}
-          onClick={() => onMunicipalityChange(municipality === m ? "todos" : m)}
-        >
-          <span aria-hidden="true">📍</span> {m}
-        </Chip>
-      ))}
-
-      <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
+      {showMetroChips ? (
+        <>
+          {MUNICIPALITIES.map((m) => (
+            <Chip
+              key={m}
+              color={MUNICIPALITY_COLORS[m]}
+              active={municipality === m}
+              onClick={() => onMunicipalityChange(municipality === m ? "todos" : m)}
+            >
+              <span aria-hidden="true">📍</span> {m}
+            </Chip>
+          ))}
+          <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
+        </>
+      ) : null}
 
       {QUICK_CATEGORY_FILTERS.map(({ key, label, emoji }) => (
         <Chip
@@ -87,7 +93,7 @@ export default function FilterBar({
         active={category === "ofrezco"}
         onClick={() => onCategoryChange("ofrezco")}
       >
-        <span aria-hidden="true">🤝</span> Ofrezco
+        <span aria-hidden="true">🤝</span> Ayudan
       </Chip>
 
       <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />

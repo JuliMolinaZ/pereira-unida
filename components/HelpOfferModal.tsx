@@ -11,11 +11,15 @@ import {
   type HelpOffer,
   type HelpSkill,
 } from "@/lib/types";
+import { cityById, DEFAULT_CITY_ID, municipalityForPin, type AppCity } from "@/lib/regions";
+import CityBanner from "./CityBanner";
 
 interface HelpOfferModalProps {
   open: boolean;
   onClose: () => void;
   onCreated: (offer: HelpOffer) => void;
+  city?: AppCity;
+  onChangeCity?: () => void;
 }
 
 const initialState: ActionResult<HelpOffer> = { success: false };
@@ -36,7 +40,13 @@ const SKILL_HINT: Record<HelpSkill, string> = {
   otro: "Ej: En qué puedes echar una mano",
 };
 
-export default function HelpOfferModal({ open, onClose, onCreated }: HelpOfferModalProps) {
+export default function HelpOfferModal({
+  open,
+  onClose,
+  onCreated,
+  city = cityById(DEFAULT_CITY_ID),
+  onChangeCity,
+}: HelpOfferModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [fullName, setFullName] = useState("");
   const [skill, setSkill] = useState<HelpSkill>("psicologia");
@@ -45,6 +55,8 @@ export default function HelpOfferModal({ open, onClose, onCreated }: HelpOfferMo
     async (_prev: ActionResult<HelpOffer>, formData: FormData) => {
       formData.set("full_name", fullName);
       formData.set("skill", skill);
+      formData.set("municipality", municipalityForPin(city));
+      formData.set("department", city.department);
       const result = await createHelpOffer(formData);
       if (result.success && result.data) {
         onCreated(result.data);
@@ -103,8 +115,9 @@ export default function HelpOfferModal({ open, onClose, onCreated }: HelpOfferMo
         action={formAction}
         className="max-h-[min(82dvh,760px)] space-y-4 overflow-y-auto px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
+        <CityBanner city={city} action="ofrecer" onChange={onChangeCity} />
         <p className="text-[13px] leading-snug text-ink-soft">
-          Publica tu oficio o profesión. Te pueden escribir desde cualquier parte de la zona.
+          Te ven las personas de {city.name}. Cuéntales en qué puedes ayudar.
         </p>
 
         <div>

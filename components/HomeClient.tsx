@@ -12,10 +12,10 @@ import {
   type PointerEvent,
 } from "react";
 import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
-import { getReports, reopenClosedRoad } from "@/app/actions";
+import { getHomeData, getReports, reopenClosedRoad } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { cn, googleMapsUrl, isReportFromLastHours, rememberMyOfferId } from "@/lib/utils";
+import { cn, googleMapsUrl, isReportFromLastHours, rememberMyOfferId, rememberMyRentalId } from "@/lib/utils";
 import {
   CATEGORY_LABELS,
   CLOSED_ROAD_REASON_LABELS,
@@ -24,6 +24,7 @@ import {
   type ClosedRoad,
   type CollectionPoint,
   type HelpOffer,
+  type Rental,
   type Report,
 } from "@/lib/types";
 import {
@@ -46,6 +47,21 @@ import FilterBar, {
 import DenseReportList from "./DenseReportList";
 import ReportCard from "./ReportCard";
 import ReportCardSkeleton from "./ReportCardSkeleton";
+import RegionPicker from "./RegionPicker";
+import {
+  cityById,
+  DEFAULT_CITY_ID,
+  DEFAULT_DEPARTMENT,
+  isDefaultZone,
+  isRisaraldaMetro,
+  placesSearchUrl,
+  readCityChosen,
+  readSavedCityId,
+  saveCityChosen,
+  saveCityId,
+  zoneQueryFor,
+  type AppCity,
+} from "@/lib/regions";
 
 const ReportsMap = dynamic(() => import("./ReportsMap"), {
   ssr: false,
@@ -57,6 +73,9 @@ const FamilyStatusModal = dynamic(() => import("./FamilyStatusModal"));
 const ClosedRoadModal = dynamic(() => import("./ClosedRoadModal"));
 const HelpOfferModal = dynamic(() => import("./HelpOfferModal"));
 const HelpOffers = dynamic(() => import("./HelpOffers"));
+const Rentals = dynamic(() => import("./Rentals"));
+const RentalFormModal = dynamic(() => import("./RentalFormModal"));
+const RentalCard = dynamic(() => import("./RentalCard"));
 
 function MapBootScreen() {
   return (
@@ -146,6 +165,7 @@ interface HomeClientProps {
   initialPoints: CollectionPoint[];
   initialRoads?: ClosedRoad[];
   initialOffers?: HelpOffer[];
+  initialRentals?: Rental[];
   initialReportId?: string | null;
   dataError?: string | null;
 }
@@ -155,22 +175,34 @@ export default function HomeClient({
   initialPoints,
   initialRoads = [],
   initialOffers = [],
+  initialRentals = [],
   initialReportId = null,
   dataError = null,
 }: HomeClientProps) {
   const [reports, setReports] = useState<Report[]>(initialReports);
+  const [points, setPoints] = useState<CollectionPoint[]>(initialPoints);
+  const [city, setCity] = useState<AppCity>(() => cityById(DEFAULT_CITY_ID));
+  const [zoneReady, setZoneReady] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [needsCity, setNeedsCity] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "report" | "offer" | "family" | "rental" | null
+  >(null);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
   const [category, setCategory] = useState<CategoryQuickFilter>("todos");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [priorityMode, setPriorityMode] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedRentalId, setSelectedRentalId] = useState<string | null>(null);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
   const [roadModalOpen, setRoadModalOpen] = useState(false);
   const [offerModalOpen, setOfferModalOpen] = useState(false);
+  const [rentalModalOpen, setRentalModalOpen] = useState(false);
   const [roads, setRoads] = useState<ClosedRoad[]>(initialRoads);
   const [offers, setOffers] = useState<HelpOffer[]>(initialOffers);
+  const [rentals, setRentals] = useState<Rental[]>(initialRentals);
   const [isPending, startTransition] = useTransition();
   const [appliedInitialReportId, setAppliedInitialReportId] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("map");
@@ -182,10 +214,23 @@ export default function HomeClient({
   const [placesLoading, setPlacesLoading] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const skipNextRefetch = useRef(true);
+  const lastFetchedZone = useRef<string | null>(null);
+  const cityRef = useRef(city);
+  cityRef.current = city;
 
   const isPointsView = category === "puntos_acopio";
   const isRoadsView = category === "vias_cerradas";
   const isOffersView = category === "ofrezco";
+  const isRentalsView = category === "arriendos";
+  const showMetroChips = isRisaraldaMetro(city);
+
+  function belongsToActiveZone(item: { department?: string; municipality?: string }) {
+    const zone = zoneQueryFor(cityRef.current);
+    const dept = item.department || DEFAULT_DEPARTMENT;
+    if (dept !== zone.department) return false;
+    if (zone.municipality && item.municipality !== zone.municipality) return false;
+    return true;
+  }
 
   useEffect(() => {
     const fromProp = initialReportId;
@@ -209,25 +254,83 @@ export default function HomeClient({
   }, [appliedInitialReportId]);
 
   useEffect(() => {
+    const saved = cityById(readSavedCityId());
+    const chosen = readCityChosen();
+    setCity(saved);
+    setNeedsCity(!chosen);
+    if (!chosen) setPickerOpen(true);
+    setZoneReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (needsCity && !pickerOpen) setPickerOpen(true);
+  }, [needsCity, pickerOpen]);
+
+  useEffect(() => {
+    if (!zoneReady) return;
+    saveCityId(city.id);
+    const zone = zoneQueryFor(city);
+    const key = `${zone.department}|${zone.municipality ?? ""}`;
+    if (lastFetchedZone.current === key) return;
+    if (lastFetchedZone.current === null && isDefaultZone(city)) {
+      lastFetchedZone.current = key;
+      return;
+    }
+    lastFetchedZone.current = key;
+    skipNextRefetch.current = true;
+    startTransition(async () => {
+      const data = await getHomeData(zone);
+      setReports(data.reports);
+      setPoints(data.points);
+      setRoads(data.roads ?? []);
+      setOffers(data.offers ?? []);
+      setRentals(data.rentals ?? []);
+      setMunicipality("todos");
+    });
+  }, [city, zoneReady]);
+
+  useEffect(() => {
+    if (!isRentalsView || !zoneReady || rentals.length > 0) return;
+    let cancelled = false;
+    getHomeData(zoneQueryFor(city)).then((data) => {
+      if (cancelled || !data.rentals?.length) return;
+      setRentals(data.rentals);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isRentalsView, zoneReady, rentals.length, city]);
+
+  useEffect(() => {
     const timeout = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.replace(/[%_,]/g, " ").trim());
     }, 450);
     return () => clearTimeout(timeout);
   }, [searchQuery]);
 
-  const filtersRef = useRef({ municipality, category, debouncedSearchQuery, selectedReportId });
+  const filtersRef = useRef({ municipality, category, debouncedSearchQuery, selectedReportId, city });
 
   useEffect(() => {
-    filtersRef.current = { municipality, category, debouncedSearchQuery, selectedReportId };
-  }, [municipality, category, debouncedSearchQuery, selectedReportId]);
+    filtersRef.current = { municipality, category, debouncedSearchQuery, selectedReportId, city };
+  }, [municipality, category, debouncedSearchQuery, selectedReportId, city]);
 
   const refetch = useCallback(() => {
     const {
       municipality: currentMunicipality,
       selectedReportId: currentSelectedId,
+      city: currentCity,
     } = filtersRef.current;
+    const zone = zoneQueryFor(currentCity);
+    const municipalityFilter =
+      currentMunicipality !== "todos" ? currentMunicipality : (zone.municipality ?? "todos");
     startTransition(async () => {
-      const data = await getReports("todos", "todos", undefined, currentMunicipality);
+      const data = await getReports(
+        "todos",
+        "todos",
+        undefined,
+        municipalityFilter,
+        zone.department
+      );
       if (data === null) return;
       const lostSelectedReport =
         data.length === 0 &&
@@ -271,7 +374,7 @@ export default function HomeClient({
     setSelectedPlaceId(null);
     setPlacesLoading(true);
     const timer = window.setTimeout(() => {
-      fetch(`/api/places?q=${encodeURIComponent(q)}`)
+      fetch(placesSearchUrl(q, city.id))
         .then((res) => (res.ok ? res.json() : { places: [] }))
         .then((data: { places?: MapPlace[] }) => {
           if (!cancelled) setMapPlaces(data.places ?? []);
@@ -287,7 +390,7 @@ export default function HomeClient({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, city.id]);
 
   useEffect(() => {
     if (dataError) return;
@@ -306,6 +409,7 @@ export default function HomeClient({
           (payload) => {
             if (payload.eventType === "INSERT" && payload.new) {
               const next = payload.new as ClosedRoad;
+              if (!belongsToActiveZone(next)) return;
               setRoads((prev) => (prev.some((r) => r.id === next.id) ? prev : [next, ...prev]));
             } else if (payload.eventType === "UPDATE" && payload.new) {
               const next = payload.new as ClosedRoad;
@@ -322,6 +426,7 @@ export default function HomeClient({
           (payload) => {
             if (payload.eventType === "INSERT" && payload.new) {
               const next = payload.new as HelpOffer;
+              if (!belongsToActiveZone(next)) return;
               setOffers((prev) => (prev.some((o) => o.id === next.id) ? prev : [next, ...prev]));
             } else if (payload.eventType === "UPDATE" && payload.new) {
               const next = payload.new as HelpOffer;
@@ -330,6 +435,63 @@ export default function HomeClient({
               const id = (payload.old as { id?: string }).id;
               if (id) setOffers((prev) => prev.filter((o) => o.id !== id));
             }
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "rentals" },
+          (payload) => {
+            if (payload.eventType === "INSERT" && payload.new) {
+              const next = payload.new as Rental;
+              if (!belongsToActiveZone(next)) return;
+              setRentals((prev) =>
+                prev.some((item) => item.id === next.id)
+                  ? prev
+                  : [{ ...next, comments_count: next.comments_count ?? 0 }, ...prev]
+              );
+            } else if (payload.eventType === "UPDATE" && payload.new) {
+              const next = payload.new as Rental;
+              setRentals((prev) =>
+                prev.map((item) =>
+                  item.id === next.id
+                    ? { ...item, ...next, comments_count: item.comments_count ?? 0 }
+                    : item
+                )
+              );
+            } else if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setRentals((prev) => prev.filter((item) => item.id !== id));
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "rental_comments" },
+          (payload) => {
+            const rentalId = (payload.new as { rental_id?: string }).rental_id;
+            if (!rentalId) return;
+            setRentals((prev) =>
+              prev.map((item) =>
+                item.id === rentalId
+                  ? { ...item, comments_count: (item.comments_count ?? 0) + 1 }
+                  : item
+              )
+            );
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "DELETE", schema: "public", table: "rental_comments" },
+          (payload) => {
+            const rentalId = (payload.old as { rental_id?: string }).rental_id;
+            if (!rentalId) return;
+            setRentals((prev) =>
+              prev.map((item) =>
+                item.id === rentalId
+                  ? { ...item, comments_count: Math.max(0, (item.comments_count ?? 0) - 1) }
+                  : item
+              )
+            );
           }
         )
         .on(
@@ -381,7 +543,8 @@ export default function HomeClient({
       category !== "todos" &&
       category !== "puntos_acopio" &&
       category !== "vias_cerradas" &&
-      category !== "ofrezco"
+      category !== "ofrezco" &&
+      category !== "arriendos"
     ) {
       base = base.filter((r) => r.category === category);
     }
@@ -423,8 +586,8 @@ export default function HomeClient({
   const visiblePoints = useMemo(() => {
     let base =
       municipality === "todos"
-        ? initialPoints
-        : initialPoints.filter((p) => p.municipality === municipality);
+        ? points
+        : points.filter((p) => p.municipality === municipality);
     if (!isSearching || isCollectionPointSearch(debouncedSearchQuery)) return base;
     return base.filter((p) =>
       matchesHaystack(
@@ -432,7 +595,7 @@ export default function HomeClient({
         debouncedSearchQuery
       )
     );
-  }, [initialPoints, municipality, isSearching, debouncedSearchQuery]);
+  }, [points, municipality, isSearching, debouncedSearchQuery]);
 
   const visibleOffers = useMemo(() => {
     const base = offers.filter((offer) => offer.status === "activa");
@@ -444,6 +607,20 @@ export default function HomeClient({
       )
     );
   }, [offers, isSearching, debouncedSearchQuery]);
+
+  const visibleRentals = useMemo(() => {
+    let base = rentals.filter((item) => item.status !== "ocultada");
+    if (municipality !== "todos") {
+      base = base.filter((item) => item.municipality === municipality);
+    }
+    if (!isSearching) return base;
+    return base.filter((item) =>
+      matchesHaystack(
+        `${item.property_type} ${item.neighborhood} ${item.address} ${item.municipality} ${item.contact}`,
+        debouncedSearchQuery
+      )
+    );
+  }, [rentals, municipality, isSearching, debouncedSearchQuery]);
 
   const mapRoads = useMemo(() => {
     let base = roads.filter((road) => road.status === "cerrada");
@@ -459,15 +636,20 @@ export default function HomeClient({
     );
   }, [roads, municipality, isSearching, debouncedSearchQuery]);
 
-  const mapPoints = isSearching || isPointsView ? visiblePoints : initialPoints.filter((p) =>
+  const mapPoints = isSearching || isPointsView ? visiblePoints : points.filter((p) =>
     municipality === "todos" ? true : p.municipality === municipality
   );
+  const mapRentals = isSearching || isRentalsView ? visibleRentals : [];
 
   useEffect(() => {
     if (!selectedReportId) return;
     const el = document.getElementById(`report-${selectedReportId}`);
     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [selectedReportId, visibleReports]);
+
+  function handleRentalUpdated(updated: Rental) {
+    setRentals((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+  }
 
   function handleStatusUpdated(updated: Report) {
     setReports((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
@@ -497,13 +679,50 @@ export default function HomeClient({
   }
 
   function handleSelectReport(id: string, expand = false) {
+    setSelectedRentalId(null);
     setSelectedReportId(id);
     setSheetMode(expand ? "expanded" : "map");
   }
 
+  function handleSelectRental(id: string) {
+    setSelectedReportId(null);
+    setSelectedPlaceId(null);
+    setSelectedRentalId(id);
+    setSheetMode("map");
+  }
+
+  function openCityPicker(action?: "report" | "offer" | "family" | "rental") {
+    if (action) setPendingAction(action);
+    setPickerOpen(true);
+  }
+
+  function handleCityPicked(next: AppCity) {
+    setCity(next);
+    saveCityId(next.id);
+    saveCityChosen();
+    setNeedsCity(false);
+    setPickerOpen(false);
+    const action = pendingAction;
+    setPendingAction(null);
+    if (action === "report") setReportModalOpen(true);
+    if (action === "offer") {
+      setPriorityMode(false);
+      setCategory("ofrezco");
+      setSheetMode("expanded");
+    }
+    if (action === "family") setFamilyModalOpen(true);
+    if (action === "rental") {
+      setPriorityMode(false);
+      setCategory("arriendos");
+      setSelectedReportId(null);
+      setSelectedPlaceId(null);
+      setSheetMode("peek");
+    }
+  }
+
   function handleWantsToHelp() {
     setPriorityMode(true);
-    if (isPointsView || isRoadsView || isOffersView) setCategory("todos");
+    if (isPointsView || isRoadsView || isOffersView || isRentalsView) setCategory("todos");
     setSheetMode("expanded");
     requestAnimationFrame(() => {
       const firstCard = document.querySelector('[id^="report-"]');
@@ -515,6 +734,25 @@ export default function HomeClient({
     setPriorityMode(false);
     setCategory("ofrezco");
     setSheetMode("expanded");
+  }
+
+  function handleWantsToRent() {
+    if (isRentalsView) {
+      setCategory("todos");
+      setSelectedRentalId(null);
+      return;
+    }
+    setPriorityMode(false);
+    setCategory("arriendos");
+    setSelectedReportId(null);
+    setSelectedPlaceId(null);
+    setSheetMode("peek");
+  }
+
+  function leaveRentalsIfNeeded() {
+    if (!isRentalsView) return;
+    setCategory("todos");
+    setSelectedRentalId(null);
   }
 
   const stats = useMemo(() => {
@@ -529,6 +767,11 @@ export default function HomeClient({
     () => reports.find((r) => r.id === selectedReportId) ?? null,
     [reports, selectedReportId]
   );
+  const selectedRental = useMemo(
+    () => rentals.find((item) => item.id === selectedRentalId) ?? null,
+    [rentals, selectedRentalId]
+  );
+  const overlayOpen = Boolean(selectedReport || selectedRental);
 
   const showSkeleton = isPending && visibleReports.length === 0;
 
@@ -538,26 +781,33 @@ export default function HomeClient({
       data-sheet={sheetMode}
       style={
         {
-          "--sheet-current": selectedReport ? "0px" : sheetHeight(sheetMode),
-          ...(selectedReport ? { "--dock-offset": "0px" } : {}),
+          "--sheet-current": overlayOpen ? "0px" : sheetHeight(sheetMode),
+          ...(overlayOpen ? { "--dock-offset": "0px" } : {}),
         } as CSSProperties
       }
     >
       <div className="absolute inset-0 z-0">
-        {mapReady ? (
+        {mapReady && zoneReady ? (
           <ReportsMap
-            reports={isPointsView && !isSearching ? [] : visibleReports}
-            points={mapPoints}
-            roads={mapRoads}
+            reports={(isPointsView || isRentalsView) && !isSearching ? [] : visibleReports}
+            points={isRentalsView && !isSearching ? [] : mapPoints}
+            roads={isRentalsView && !isSearching ? [] : mapRoads}
             places={isSearching ? mapPlaces : []}
+            rentals={mapRentals}
             fitSearchResults={isSearching && !selectedPlaceId}
+            fitRentals={isRentalsView && !isSearching && !selectedRentalId}
             selectedReportId={selectedReportId}
             selectedPlaceId={selectedPlaceId}
+            selectedRentalId={selectedRentalId}
+            centerLat={city.center[0]}
+            centerLng={city.center[1]}
+            cityName={city.name}
             onSelectReport={(id) => {
               setSelectedPlaceId(null);
               handleSelectReport(id);
             }}
             onSelectPlace={setSelectedPlaceId}
+            onSelectRental={handleSelectRental}
             onAddClosedRoad={() => setRoadModalOpen(true)}
             onReopenRoad={handleReopenRoad}
           />
@@ -572,6 +822,8 @@ export default function HomeClient({
           criticalCount={stats.critico}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
+          cityName={city.name}
+          onCityClick={() => openCityPicker()}
         />
 
         {dataError && (
@@ -592,9 +844,11 @@ export default function HomeClient({
             onCategoryChange={(value) => {
               setCategory(value);
               setPriorityMode(false);
+              setSelectedRentalId(null);
             }}
             timeWindow={timeWindow}
             onTimeWindowChange={setTimeWindow}
+            showMetroChips={showMetroChips}
           />
         </div>
       </div>
@@ -603,16 +857,26 @@ export default function HomeClient({
         className={cn(
           "absolute inset-x-2.5 z-10 transition-opacity duration-200 lg:inset-x-3",
           "bottom-[calc(var(--sheet-current)+0.45rem)]",
-          (sheetMode === "expanded" || selectedReport) &&
+          (sheetMode === "expanded" || overlayOpen) &&
             "max-lg:pointer-events-none max-lg:opacity-0",
           "lg:bottom-[max(0.75rem,env(safe-area-inset-bottom))] lg:left-3 lg:right-[calc(var(--sheet-panel-width)+1.5rem)]"
         )}
       >
         <ActionCards
-          onReportClick={() => setReportModalOpen(true)}
-          onHelpClick={handleWantsToOffer}
-          onFamilyClick={() => setFamilyModalOpen(true)}
+          onReportClick={() => {
+            leaveRentalsIfNeeded();
+            if (needsCity) openCityPicker("report");
+            else setReportModalOpen(true);
+          }}
+          onHelpClick={() => (needsCity ? openCityPicker("offer") : handleWantsToOffer())}
+          onFamilyClick={() => {
+            leaveRentalsIfNeeded();
+            if (needsCity) openCityPicker("family");
+            else setFamilyModalOpen(true);
+          }}
+          onRentalsClick={() => (needsCity ? openCityPicker("rental") : handleWantsToRent())}
           helpActive={isOffersView}
+          rentalsActive={isRentalsView}
         />
       </div>
 
@@ -621,7 +885,7 @@ export default function HomeClient({
           "pointer-events-auto absolute z-20 flex flex-col overflow-hidden",
           "inset-x-0 bottom-0 h-[var(--sheet-current)] rounded-t-[24px]",
           "transition-[height,opacity] duration-300 ease-out",
-          selectedReport && "max-lg:pointer-events-none max-lg:opacity-0",
+          overlayOpen && "max-lg:pointer-events-none max-lg:opacity-0",
           "lg:top-3 lg:right-3 lg:bottom-auto lg:left-auto lg:h-[calc(100dvh-24px)] lg:w-[var(--sheet-panel-width)] lg:rounded-[28px] lg:transition-none"
         )}
       >
@@ -635,14 +899,17 @@ export default function HomeClient({
                   visiblePoints.length +
                   mapPlaces.length +
                   mapRoads.length +
-                  visibleOffers.length
+                  visibleOffers.length +
+                  visibleRentals.length
                 : isPointsView
                   ? visiblePoints.length
                   : isRoadsView
                     ? mapRoads.length
                     : isOffersView
                       ? visibleOffers.length
-                      : visibleReports.length
+                      : isRentalsView
+                        ? visibleRentals.length
+                        : visibleReports.length
             }
             onMap={() => setSheetMode("map")}
             onPeek={() => setSheetMode("peek")}
@@ -666,7 +933,7 @@ export default function HomeClient({
             className="sheet-scroll min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
             {isPointsView && !isSearching ? (
-              <CollectionPoints points={initialPoints} />
+              <CollectionPoints points={points} city={city} />
             ) : isRoadsView && !isSearching ? (
               <div className="space-y-2 p-0.5">
                 <button
@@ -678,7 +945,7 @@ export default function HomeClient({
                 </button>
                 {mapRoads.length === 0 ? (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
-                    No hay vías cerradas publicadas. Márcalas tocando el mapa.
+                    No hay vías cerradas en {city.name}. Márcalas tocando el mapa.
                   </p>
                 ) : (
                   mapRoads.map((road) => (
@@ -702,11 +969,23 @@ export default function HomeClient({
             ) : isOffersView && !isSearching ? (
               <HelpOffers
                 offers={offers}
+                cityName={city.name}
                 onPublish={() => setOfferModalOpen(true)}
                 onSeeNeeds={handleWantsToHelp}
                 onHidden={(offer) =>
                   setOffers((prev) => prev.map((item) => (item.id === offer.id ? offer : item)))
                 }
+              />
+            ) : isRentalsView && !isSearching ? (
+              <Rentals
+                rentals={visibleRentals}
+                cityName={city.name}
+                selectedId={selectedRentalId}
+                showMunicipality={showMetroChips}
+                onPublish={() => setRentalModalOpen(true)}
+                onSeeHelp={handleWantsToHelp}
+                onSelect={handleSelectRental}
+                onStatusUpdated={handleRentalUpdated}
               />
             ) : (
               <>
@@ -863,10 +1142,11 @@ export default function HomeClient({
                 {isSearching && visibleOffers.length > 0 && (
                   <div className="mb-3">
                     <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                      Quienes ayudan · {visibleOffers.length}
+                      Quienes ayudan en {city.name} · {visibleOffers.length}
                     </p>
                     <HelpOffers
                       offers={visibleOffers}
+                      cityName={city.name}
                       showCtas={false}
                       onPublish={() => setOfferModalOpen(true)}
                       onSeeNeeds={handleWantsToHelp}
@@ -877,12 +1157,30 @@ export default function HomeClient({
                   </div>
                 )}
 
+                {isSearching && visibleRentals.length > 0 && (
+                  <div className="mb-3">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Arriendos · {visibleRentals.length}
+                    </p>
+                    <Rentals
+                      rentals={visibleRentals}
+                      cityName={city.name}
+                      showCtas={false}
+                      selectedId={selectedRentalId}
+                      showMunicipality={showMetroChips}
+                      onPublish={() => setRentalModalOpen(true)}
+                      onSelect={handleSelectRental}
+                      onStatusUpdated={handleRentalUpdated}
+                    />
+                  </div>
+                )}
+
                 {isSearching && visiblePoints.length > 0 && (
                   <div className="mb-3">
                     <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                       Acopio · {visiblePoints.length}
                     </p>
-                    <CollectionPoints points={visiblePoints} />
+                    <CollectionPoints points={visiblePoints} city={city} />
                   </div>
                 )}
 
@@ -892,15 +1190,16 @@ export default function HomeClient({
                   mapPlaces.length === 0 &&
                   visiblePoints.length === 0 &&
                   mapRoads.length === 0 &&
-                  visibleOffers.length === 0 && (
+                  visibleOffers.length === 0 &&
+                  visibleRentals.length === 0 && (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     {dataError
                       ? "No pudimos cargar los reportes."
                       : isSearching
-                        ? "No hay hospitales, acopios, ofertas ni pedidos con esa búsqueda."
+                        ? `No hay hospitales, acopios, arriendos, ofertas ni solicitudes con esa búsqueda en ${city.name}.`
                         : timeWindow === "6h"
-                          ? "No hay reportes de las últimas 6 horas."
-                          : "No hay reportes con estos filtros."}
+                          ? `No hay solicitudes de las últimas 6 horas en ${city.name}.`
+                          : `Aún no hay solicitudes de ayuda en ${city.name}.`}
                   </p>
                 )}
 
@@ -908,7 +1207,7 @@ export default function HomeClient({
                   <div className={cn("p-0.5 transition-opacity duration-200", isPending && "opacity-50")}>
                     {isSearching ? (
                       <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-                        Pedidos de ayuda · {visibleReports.length}
+                        Solicitudes de ayuda · {visibleReports.length}
                       </p>
                     ) : null}
                     <DenseReportList
@@ -917,6 +1216,7 @@ export default function HomeClient({
                       scrollRef={listScrollRef}
                       onSelect={(id) => handleSelectReport(id)}
                       onStatusUpdated={handleStatusUpdated}
+                      showMunicipality={showMetroChips}
                     />
                   </div>
                 )}
@@ -951,7 +1251,41 @@ export default function HomeClient({
                 selected
                 anchor={false}
                 onStatusUpdated={handleStatusUpdated}
+                showMunicipality={showMetroChips}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedRental && (
+        <div className="absolute inset-0 z-40 flex items-end justify-center px-2.5 pb-[max(2.75rem,calc(env(safe-area-inset-bottom)+2.25rem))] lg:items-center lg:p-3 lg:px-3 lg:pb-3 lg:pr-[calc(var(--sheet-panel-width)+1.5rem)]">
+          <button
+            type="button"
+            aria-label="Cerrar ficha"
+            className="absolute inset-0 bg-black/25 lg:bg-black/40"
+            onClick={() => setSelectedRentalId(null)}
+          />
+          <div className="relative z-10 flex max-h-[min(86dvh,760px)] w-full max-w-md flex-col px-0 lg:max-h-[min(88dvh,820px)]">
+            <div className="flex justify-end px-1 pb-1.5 lg:px-0 lg:pb-2">
+              <button
+                type="button"
+                onClick={() => setSelectedRentalId(null)}
+                className="glass flex h-9 w-9 items-center justify-center rounded-full text-ink"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="sheet-scroll min-h-0 overflow-y-auto overscroll-contain rounded-[22px] shadow-[0_16px_48px_rgba(15,10,8,0.28)]">
+              <div className="glass">
+                <RentalCard
+                  rental={selectedRental}
+                  selected
+                  showMunicipality={showMetroChips}
+                  onStatusUpdated={handleRentalUpdated}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -961,11 +1295,20 @@ export default function HomeClient({
         open={reportModalOpen}
         onClose={() => setReportModalOpen(false)}
         onCreated={handleReportCreated}
+        city={city}
+        onChangeCity={() => openCityPicker()}
       />
-      <FamilyStatusModal open={familyModalOpen} onClose={() => setFamilyModalOpen(false)} />
+      <FamilyStatusModal
+        open={familyModalOpen}
+        onClose={() => setFamilyModalOpen(false)}
+        city={city}
+        onChangeCity={() => openCityPicker()}
+      />
       <ClosedRoadModal
         open={roadModalOpen}
         onClose={() => setRoadModalOpen(false)}
+        city={city}
+        onChangeCity={() => openCityPicker()}
         onCreated={(road) => {
           setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
           setCategory("vias_cerradas");
@@ -975,12 +1318,34 @@ export default function HomeClient({
       <HelpOfferModal
         open={offerModalOpen}
         onClose={() => setOfferModalOpen(false)}
+        city={city}
+        onChangeCity={() => openCityPicker()}
         onCreated={(offer) => {
           rememberMyOfferId(offer.id);
           setOffers((prev) => (prev.some((item) => item.id === offer.id) ? prev : [offer, ...prev]));
           setCategory("ofrezco");
           setSheetMode("expanded");
         }}
+      />
+      <RentalFormModal
+        open={rentalModalOpen}
+        onClose={() => setRentalModalOpen(false)}
+        city={city}
+        onChangeCity={() => openCityPicker()}
+        onCreated={(rental) => {
+          rememberMyRentalId(rental.id);
+          setRentals((prev) => (prev.some((item) => item.id === rental.id) ? prev : [rental, ...prev]));
+          setCategory("arriendos");
+          setSelectedRentalId(rental.id);
+          setSheetMode("map");
+        }}
+      />
+      <RegionPicker
+        open={pickerOpen}
+        currentId={city.id}
+        required={needsCity}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleCityPicked}
       />
     </div>
   );

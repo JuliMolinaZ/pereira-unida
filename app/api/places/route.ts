@@ -7,6 +7,7 @@ import {
   type MapPlace,
 } from "@/lib/places";
 import { getCachedAmenities, searchRemotePlaces } from "@/lib/osm";
+import { cityById, DEFAULT_CITY_ID, isRisaraldaMetro } from "@/lib/regions";
 
 function dedupe(places: MapPlace[]): MapPlace[] {
   const seen = new Set<string>();
@@ -46,12 +47,13 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q")?.trim() ?? "";
   const mode = url.searchParams.get("mode");
+  const city = cityById(url.searchParams.get("city") || DEFAULT_CITY_ID);
   if (q.length < 2) {
     return Response.json({ places: [] as MapPlace[] });
   }
 
-  const known = knownPlacesForQuery(q);
-  const dump = await getCachedAmenities().catch(() => [] as MapPlace[]);
+  const known = isRisaraldaMetro(city) ? knownPlacesForQuery(q) : [];
+  const dump = await getCachedAmenities(city.bbox).catch(() => [] as MapPlace[]);
   const { amenities, extra } = detectPlaceSearch(q);
   const local = filterLocal(dump, amenities, extra, q);
 
@@ -64,7 +66,7 @@ export async function GET(request: Request) {
           ? known.length + local.length < 2
           : false;
 
-  const remote = needRemote ? await searchRemotePlaces(q).catch(() => [] as MapPlace[]) : [];
+  const remote = needRemote ? await searchRemotePlaces(q, city.bbox).catch(() => [] as MapPlace[]) : [];
 
   let merged = dedupe([...known, ...local, ...remote]);
   if (extra) {

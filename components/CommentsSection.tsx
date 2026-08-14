@@ -2,18 +2,21 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { ChevronDown, Loader2, MessageSquareText, Send } from "lucide-react";
-import { addComment, getComments } from "@/app/actions";
+import { addComment, addRentalComment, getComments, getRentalComments } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn, formatTimeAgo } from "@/lib/utils";
 import type { Comment } from "@/lib/types";
 
 interface CommentsSectionProps {
-  reportId: string;
+  reportId?: string;
+  rentalId?: string;
 }
 
 const PREVIEW_COUNT = 2;
 
-export default function CommentsSection({ reportId }: CommentsSectionProps) {
+export default function CommentsSection({ reportId, rentalId }: CommentsSectionProps) {
+  const parentId = reportId ?? rentalId ?? "";
+  const isRental = Boolean(rentalId);
   const [expanded, setExpanded] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -25,8 +28,10 @@ export default function CommentsSection({ reportId }: CommentsSectionProps) {
 
   useEffect(() => {
     let isActive = true;
+    if (!parentId) return;
 
-    getComments(reportId).then((data) => {
+    const load = isRental ? getRentalComments(parentId) : getComments(parentId);
+    load.then((data) => {
       if (isActive) {
         setComments(data);
         setLoaded(true);
@@ -35,14 +40,14 @@ export default function CommentsSection({ reportId }: CommentsSectionProps) {
 
     const supabase = getSupabaseBrowserClient();
     const channel = supabase
-      .channel(`comments-${reportId}`)
+      .channel(`${isRental ? "rental-comments" : "comments"}-${parentId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
-          table: "comments",
-          filter: `report_id=eq.${reportId}`,
+          table: isRental ? "rental_comments" : "comments",
+          filter: isRental ? `rental_id=eq.${parentId}` : `report_id=eq.${parentId}`,
         },
         (payload) => {
           const incoming = payload.new as Comment;
@@ -57,7 +62,7 @@ export default function CommentsSection({ reportId }: CommentsSectionProps) {
       isActive = false;
       supabase.removeChannel(channel);
     };
-  }, [reportId]);
+  }, [parentId, isRental]);
 
   useEffect(() => {
     if (expanded) {
@@ -72,7 +77,9 @@ export default function CommentsSection({ reportId }: CommentsSectionProps) {
     setExpanded(true);
 
     startTransition(async () => {
-      const result = await addComment(reportId, author, content.trim());
+      const result = isRental
+        ? await addRentalComment(parentId, author, content.trim())
+        : await addComment(parentId, author, content.trim());
       if (result.success && result.data) {
         setComments((prev) =>
           prev.some((c) => c.id === result.data!.id) ? prev : [...prev, result.data!]

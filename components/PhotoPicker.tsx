@@ -8,6 +8,7 @@ interface PhotoPickerProps {
   id: string;
   label: string;
   hint?: string;
+  max?: number;
   onFilesChange?: (files: File[]) => void;
   onBusyChange?: (busy: boolean) => void;
 }
@@ -16,6 +17,7 @@ export default function PhotoPicker({
   id,
   label,
   hint,
+  max = MAX_PHOTOS_PER_ENTRY,
   onFilesChange,
   onBusyChange,
 }: PhotoPickerProps) {
@@ -57,9 +59,9 @@ export default function PhotoPicker({
         return;
       }
 
-      const room = MAX_PHOTOS_PER_ENTRY - filesRef.current.length;
+      const room = max - filesRef.current.length;
       if (room <= 0) {
-        setLocalError(`Puedes adjuntar máximo ${MAX_PHOTOS_PER_ENTRY} fotos.`);
+        setLocalError(`Puedes adjuntar máximo ${max} fotos.`);
         return;
       }
 
@@ -76,7 +78,7 @@ export default function PhotoPicker({
       }
 
       if (prepared.length > 0) {
-        const next = [...filesRef.current, ...prepared].slice(0, MAX_PHOTOS_PER_ENTRY);
+        const next = [...filesRef.current, ...prepared].slice(0, max);
         setFiles(next);
         onFilesChange?.(next);
       }
@@ -84,7 +86,7 @@ export default function PhotoPicker({
       if (errors.length > 0) {
         setLocalError(errors[0]);
       } else if (truncated) {
-        setLocalError(`Solo se pueden adjuntar ${MAX_PHOTOS_PER_ENTRY} fotos.`);
+        setLocalError(`Solo se pueden adjuntar ${max} fotos.`);
       } else if (prepared.length === 0) {
         setLocalError("No se pudo agregar esa foto. Prueba tomarla de nuevo.");
       }
@@ -114,7 +116,7 @@ export default function PhotoPicker({
     setLocalError(null);
   }
 
-  const canAdd = files.length < MAX_PHOTOS_PER_ENTRY;
+  const canAdd = files.length < max;
   const addLabel = files.length === 0;
 
   return (
@@ -190,7 +192,7 @@ export default function PhotoPicker({
         </p>
       ) : (
         <p className="mt-1.5 text-[11px] text-ink-soft">
-          {hint ?? `Hasta ${MAX_PHOTOS_PER_ENTRY} fotos. Se comprimen en el celular antes de enviar.`}
+          {hint ?? `Hasta ${max} fotos. Se comprimen en el celular antes de enviar.`}
         </p>
       )}
     </div>

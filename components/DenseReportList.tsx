@@ -14,12 +14,14 @@ export default function DenseReportList({
   scrollRef,
   onSelect,
   onStatusUpdated,
+  showMunicipality = false,
 }: {
   reports: Report[];
   selectedId: string | null;
   scrollRef: RefObject<HTMLDivElement | null>;
   onSelect: (id: string) => void;
   onStatusUpdated: (report: Report) => void;
+  showMunicipality?: boolean;
 }) {
   const selectedWrapRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -111,6 +113,7 @@ export default function DenseReportList({
               onStatusUpdated={onStatusUpdated}
               selected={selected}
               onSelect={() => onSelect(report.id)}
+              showMunicipality={showMunicipality}
             />
           </div>
         );

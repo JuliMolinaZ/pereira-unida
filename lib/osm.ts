@@ -2,11 +2,17 @@ import "server-only";
 import {
   kindFromOsmTags,
   type MapPlace,
-  METRO_BBOX,
 } from "@/lib/places";
+import {
+  cityById,
+  cityFromText,
+  DEFAULT_CITY_ID,
+  inBbox,
+  type GeoBBox,
+} from "@/lib/regions";
 
 const USER_AGENT = "PereiraUnida/1.0 (https://pereira-unida.vercel.app)";
-const { south, west, north, east } = METRO_BBOX;
+const DEFAULT_BBOX = cityById(DEFAULT_CITY_ID).bbox;
 
 const memory = new Map<string, { exp: number; stale: number; value: unknown }>();
 let nominatimAt = 0;
@@ -25,6 +31,10 @@ function memGet<T>(key: string): { value: T; fresh: boolean } | null {
 
 function memSet(key: string, value: unknown, ttlMs: number, staleMs = ttlMs * 3) {
   memory.set(key, { value, exp: Date.now() + ttlMs, stale: Date.now() + staleMs });
+}
+
+function bboxKey(bbox: GeoBBox): string {
+  return `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
 }
 
 type OverpassElement = {
@@ -52,16 +62,12 @@ type NominatimHit = {
   };
 };
 
-export function inBbox(lat: number, lng: number): boolean {
-  return lat >= south && lat <= north && lng >= west && lng <= east;
-}
-
-function parseOsmPlaces(elements: OverpassElement[]): MapPlace[] {
+function parseOsmPlaces(elements: OverpassElement[], bbox: GeoBBox): MapPlace[] {
   const places: MapPlace[] = [];
   for (const el of elements) {
     const lat = el.lat ?? el.center?.lat;
     const lng = el.lon ?? el.center?.lon;
-    if (typeof lat !== "number" || typeof lng !== "number" || !inBbox(lat, lng)) continue;
+    if (typeof lat !== "number" || typeof lng !== "number" || !inBbox(bbox, lat, lng)) continue;
     const tags = el.tags ?? {};
     const name = tags.name || tags["name:es"] || tags.operator;
     if (!name) continue;
@@ -80,7 +86,8 @@ function parseOsmPlaces(elements: OverpassElement[]): MapPlace[] {
   return places;
 }
 
-async function fetchOverpassDump(): Promise<MapPlace[]> {
+async function fetchOverpassDump(bbox: GeoBBox): Promise<MapPlace[]> {
+  const { south, west, north, east } = bbox;
   const query = `[out:json][timeout:18];(
     nwr["amenity"~"^(hospital|clinic|doctors|pharmacy|fire_station|police|shelter|social_facility)$"](${south},${west},${north},${east});
     nwr["healthcare"~"^(hospital|clinic|centre|doctor|pharmacy)$"](${south},${west},${north},${east});
@@ -103,7 +110,7 @@ async function fetchOverpassDump(): Promise<MapPlace[]> {
       });
       if (!res.ok) continue;
       const data = (await res.json()) as { elements?: OverpassElement[] };
-      return parseOsmPlaces(data.elements ?? []);
+      return parseOsmPlaces(data.elements ?? [], bbox);
     } catch {
       continue;
     }
@@ -111,23 +118,24 @@ async function fetchOverpassDump(): Promise<MapPlace[]> {
   return [];
 }
 
-export async function getCachedAmenities(): Promise<MapPlace[]> {
-  const cached = memGet<MapPlace[]>("osm-amenities");
+export async function getCachedAmenities(bbox: GeoBBox = DEFAULT_BBOX): Promise<MapPlace[]> {
+  const key = `osm-amenities:${bboxKey(bbox)}`;
+  const cached = memGet<MapPlace[]>(key);
   if (cached?.fresh) return cached.value;
-  const places = await fetchOverpassDump();
+  const places = await fetchOverpassDump(bbox);
   if (places.length > 0) {
-    memSet("osm-amenities", places, 30 * 60 * 1000, 3 * 60 * 60 * 1000);
+    memSet(key, places, 30 * 60 * 1000, 3 * 60 * 60 * 1000);
     return places;
   }
   return cached?.value ?? [];
 }
 
-function parseNominatim(hits: NominatimHit[]): MapPlace[] {
+function parseNominatim(hits: NominatimHit[], bbox: GeoBBox): MapPlace[] {
   return hits
     .map((hit) => {
       const lat = Number(hit.lat);
       const lng = Number(hit.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !inBbox(lat, lng)) return null;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !inBbox(bbox, lat, lng)) return null;
       const addr = hit.address;
       const address = [addr?.road, addr?.neighbourhood ?? addr?.suburb, addr?.city ?? addr?.town]
         .filter(Boolean)
@@ -144,7 +152,8 @@ function parseNominatim(hits: NominatimHit[]): MapPlace[] {
     .filter((place): place is MapPlace => place !== null);
 }
 
-async function nominatimSearch(query: string): Promise<MapPlace[]> {
+async function nominatimSearch(query: string, bbox: GeoBBox): Promise<MapPlace[]> {
+  const { south, west, north, east } = bbox;
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("q", query);
   url.searchParams.set("format", "jsonv2");
@@ -161,7 +170,7 @@ async function nominatimSearch(query: string): Promise<MapPlace[]> {
     next: { revalidate: 600 },
   });
   if (!res.ok) return [];
-  return parseNominatim((await res.json()) as NominatimHit[]);
+  return parseNominatim((await res.json()) as NominatimHit[], bbox);
 }
 
 type PhotonFeature = {
@@ -176,11 +185,11 @@ type PhotonFeature = {
   };
 };
 
-async function photonSearch(query: string): Promise<MapPlace[]> {
+async function photonSearch(query: string, bbox: GeoBBox): Promise<MapPlace[]> {
   const url = new URL("https://photon.komoot.io/api");
   url.searchParams.set("q", query);
-  url.searchParams.set("lat", String((south + north) / 2));
-  url.searchParams.set("lon", String((west + east) / 2));
+  url.searchParams.set("lat", String((bbox.south + bbox.north) / 2));
+  url.searchParams.set("lon", String((bbox.west + bbox.east) / 2));
   url.searchParams.set("limit", "12");
   url.searchParams.set("lang", "es");
 
@@ -196,7 +205,7 @@ async function photonSearch(query: string): Promise<MapPlace[]> {
       const coords = feature.geometry?.coordinates;
       if (!coords) return null;
       const [lng, lat] = coords;
-      if (!inBbox(lat, lng)) return null;
+      if (!inBbox(bbox, lat, lng)) return null;
       const props = feature.properties ?? {};
       const address = [props.street, props.district, props.city].filter(Boolean).join(", ");
       return {
@@ -225,13 +234,19 @@ function enqueueNominatim<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export async function searchRemotePlaces(query: string): Promise<MapPlace[]> {
-  const key = `search:${query.toLowerCase()}`;
+export async function searchRemotePlaces(
+  query: string,
+  bbox: GeoBBox = DEFAULT_BBOX
+): Promise<MapPlace[]> {
+  const key = `search:${bboxKey(bbox)}:${query.toLowerCase()}`;
   const cached = memGet<MapPlace[]>(key);
   if (cached?.fresh) return cached.value;
 
-  const fromNominatim = await enqueueNominatim(() => nominatimSearch(query)).catch(() => [] as MapPlace[]);
-  const places = fromNominatim.length > 0 ? fromNominatim : await photonSearch(query).catch(() => [] as MapPlace[]);
+  const fromNominatim = await enqueueNominatim(() => nominatimSearch(query, bbox)).catch(
+    () => [] as MapPlace[]
+  );
+  const places =
+    fromNominatim.length > 0 ? fromNominatim : await photonSearch(query, bbox).catch(() => [] as MapPlace[]);
   if (places.length > 0) {
     memSet(key, places, 10 * 60 * 1000, 60 * 60 * 1000);
     return places;
@@ -239,10 +254,10 @@ export async function searchRemotePlaces(query: string): Promise<MapPlace[]> {
   return cached?.value ?? [];
 }
 
-export type ReverseGeo = { displayName: string; municipality: "Pereira" | "Dosquebradas" };
+export type ReverseGeo = { displayName: string; municipality: string };
 
-function municipalityFromText(text: string): ReverseGeo["municipality"] {
-  return text.toLowerCase().includes("dosquebradas") ? "Dosquebradas" : "Pereira";
+function municipalityFromText(text: string): string {
+  return cityFromText(text, cityById(DEFAULT_CITY_ID)).name;
 }
 
 async function nominatimReverse(lat: number, lng: number): Promise<ReverseGeo | null> {
@@ -302,6 +317,51 @@ async function photonReverse(lat: number, lng: number): Promise<ReverseGeo | nul
 
 export function roundCoord(value: number): number {
   return Math.round(value * 10000) / 10000;
+}
+
+const COLOMBIA_BBOX: GeoBBox = { south: -4.3, west: -79.1, north: 13.5, east: -66.8 };
+
+async function nominatimSearchFree(query: string): Promise<MapPlace[]> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("countrycodes", "co");
+  url.searchParams.set("accept-language", "es");
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(8000),
+    next: { revalidate: 600 },
+  });
+  if (!res.ok) return [];
+  return parseNominatim((await res.json()) as NominatimHit[], COLOMBIA_BBOX);
+}
+
+export async function geocodeAddress(
+  query: string,
+  bbox: GeoBBox = DEFAULT_BBOX
+): Promise<{ lat: number; lng: number; displayName: string } | null> {
+  const q = query.trim();
+  if (q.length < 3) return null;
+  const key = `fwd:${bboxKey(bbox)}:${q.toLowerCase()}`;
+  const cached = memGet<{ lat: number; lng: number; displayName: string } | null>(key);
+  if (cached?.fresh) return cached.value;
+
+  const bounded = await enqueueNominatim(() => nominatimSearch(q, bbox)).catch(
+    () => [] as MapPlace[]
+  );
+  let hit = bounded[0] ?? (await photonSearch(q, bbox).catch(() => [] as MapPlace[]))[0];
+  if (!hit) {
+    const free = await enqueueNominatim(() => nominatimSearchFree(q)).catch(() => [] as MapPlace[]);
+    hit = free[0];
+  }
+  const result = hit
+    ? { lat: hit.lat, lng: hit.lng, displayName: hit.address || hit.name }
+    : null;
+  memSet(key, result, 30 * 60 * 1000, 2 * 60 * 60 * 1000);
+  return result;
 }
 
 export async function reverseGeocodeServer(lat: number, lng: number): Promise<ReverseGeo | null> {

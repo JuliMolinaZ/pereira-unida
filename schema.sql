@@ -31,7 +31,8 @@ create table if not exists public.reports (
   status         text not null default 'buscando' check (status in (
                    'buscando', 'en_camino', 'resuelto', 'informacion_falsa', 'duplicado'
                  )),
-  municipality   text not null default 'Pereira' check (municipality in ('Pereira', 'Dosquebradas')),
+  municipality   text not null default 'Pereira',
+  department     text not null default 'Risaralda',
   location_name  text not null,
   lat            float8,
   lng            float8,
@@ -117,7 +118,8 @@ create table if not exists public.people_status (
   id             uuid primary key default gen_random_uuid(),
   full_name      text not null check (char_length(trim(full_name)) > 0),
   document_id    text,
-  municipality   text not null check (municipality in ('Pereira', 'Dosquebradas')),
+  municipality   text not null,
+  department     text not null default 'Risaralda',
   neighborhood   text not null,
   lat            float8,
   lng            float8,
@@ -193,7 +195,8 @@ create table if not exists public.people_status (
   id             uuid primary key default gen_random_uuid(),
   full_name      text not null check (char_length(trim(full_name)) > 0),
   document_id    text,
-  municipality   text not null check (municipality in ('Pereira', 'Dosquebradas')),
+  municipality   text not null,
+  department     text not null default 'Risaralda',
   neighborhood   text not null,
   lat            float8,
   lng            float8,
@@ -375,7 +378,8 @@ create table if not exists public.closed_roads (
                  'derrumbe', 'inundacion', 'arbol', 'hundimiento', 'bloqueo', 'otro'
                )),
   note         text not null default '',
-  municipality text not null default 'Pereira' check (municipality in ('Pereira', 'Dosquebradas')),
+  municipality text not null default 'Pereira',
+  department   text not null default 'Risaralda',
   path         jsonb not null,
   status       text not null default 'cerrada' check (status in ('cerrada', 'reabierta')),
   created_at   timestamptz not null default now()
@@ -425,7 +429,8 @@ create table if not exists public.help_offers (
                )),
   description  text not null default '',
   phone        text not null check (char_length(trim(phone)) > 0),
-  municipality text not null default 'Pereira' check (municipality in ('Pereira', 'Dosquebradas')),
+  municipality text not null default 'Pereira',
+  department   text not null default 'Risaralda',
   status       text not null default 'activa' check (status in ('activa', 'ocultada')),
   created_at   timestamptz not null default now()
 );
@@ -458,6 +463,137 @@ alter table public.help_offers replica identity full;
 do $$
 begin
   alter publication supabase_realtime add table public.help_offers;
+exception
+  when duplicate_object then null;
+end $$;
+
+-- ============================================================================
+-- MIGRACIÓN 7 — Zonas de Colombia (2026-08-13)
+-- ============================================================================
+
+do $$
+declare
+  r record;
+begin
+  for r in
+    select con.conname, cls.relname
+    from pg_constraint con
+    join pg_class cls on cls.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = cls.relnamespace
+    where nsp.nspname = 'public'
+      and cls.relname in (
+        'reports', 'collection_points', 'people_status', 'closed_roads', 'help_offers'
+      )
+      and con.contype = 'c'
+      and pg_get_constraintdef(con.oid) ilike '%municipality%'
+      and pg_get_constraintdef(con.oid) ilike '%Pereira%'
+  loop
+    execute format('alter table public.%I drop constraint if exists %I', r.relname, r.conname);
+  end loop;
+end $$;
+
+alter table public.reports
+  add column if not exists department text not null default 'Risaralda';
+alter table public.collection_points
+  add column if not exists department text not null default 'Risaralda';
+alter table public.people_status
+  add column if not exists department text not null default 'Risaralda';
+alter table public.closed_roads
+  add column if not exists department text not null default 'Risaralda';
+alter table public.help_offers
+  add column if not exists department text not null default 'Risaralda';
+
+create index if not exists reports_department_idx on public.reports (department);
+create index if not exists collection_points_department_idx on public.collection_points (department);
+create index if not exists people_status_department_idx on public.people_status (department);
+create index if not exists closed_roads_department_idx on public.closed_roads (department);
+create index if not exists help_offers_department_idx on public.help_offers (department);
+
+-- ----------------------------------------------------------------------------
+-- Tabla: rentals (viviendas en arriendo)
+-- ----------------------------------------------------------------------------
+create table if not exists public.rentals (
+  id            uuid primary key default gen_random_uuid(),
+  municipality  text not null default 'Pereira',
+  department    text not null default 'Risaralda',
+  neighborhood  text not null default '',
+  address       text not null check (char_length(trim(address)) > 0),
+  property_type text not null check (char_length(trim(property_type)) > 0),
+  furnished     boolean not null default false,
+  contact       text not null check (char_length(trim(contact)) > 0),
+  monthly_rent  integer,
+  photo_urls    text[] not null default '{}',
+  lat           float8,
+  lng           float8,
+  submitted_at  timestamptz,
+  status        text not null default 'disponible' check (status in ('disponible', 'ocupada', 'ocultada')),
+  created_at    timestamptz not null default now(),
+  check (monthly_rent is null or monthly_rent > 0)
+);
+
+create index if not exists rentals_status_idx on public.rentals (status);
+create index if not exists rentals_municipality_idx on public.rentals (municipality);
+create index if not exists rentals_department_idx on public.rentals (department);
+create index if not exists rentals_created_at_idx on public.rentals (created_at desc);
+
+alter table public.rentals enable row level security;
+
+drop policy if exists "rentals_select_public" on public.rentals;
+create policy "rentals_select_public"
+  on public.rentals for select
+  using (true);
+
+drop policy if exists "rentals_insert_public" on public.rentals;
+create policy "rentals_insert_public"
+  on public.rentals for insert
+  with check (true);
+
+drop policy if exists "rentals_update_public" on public.rentals;
+create policy "rentals_update_public"
+  on public.rentals for update
+  using (true)
+  with check (true);
+
+alter table public.rentals replica identity full;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.rentals;
+exception
+  when duplicate_object then null;
+end $$;
+
+-- ----------------------------------------------------------------------------
+-- Tabla: rental_comments
+-- ----------------------------------------------------------------------------
+create table if not exists public.rental_comments (
+  id           uuid primary key default gen_random_uuid(),
+  rental_id    uuid not null references public.rentals (id) on delete cascade,
+  author_name  text not null default 'Anónimo',
+  content      text not null check (char_length(trim(content)) > 0),
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists rental_comments_rental_id_idx on public.rental_comments (rental_id);
+create index if not exists rental_comments_created_at_idx on public.rental_comments (created_at asc);
+
+alter table public.rental_comments enable row level security;
+
+drop policy if exists "rental_comments_select_public" on public.rental_comments;
+create policy "rental_comments_select_public"
+  on public.rental_comments for select
+  using (true);
+
+drop policy if exists "rental_comments_insert_public" on public.rental_comments;
+create policy "rental_comments_insert_public"
+  on public.rental_comments for insert
+  with check (true);
+
+alter table public.rental_comments replica identity full;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.rental_comments;
 exception
   when duplicate_object then null;
 end $$;

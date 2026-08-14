@@ -7,6 +7,7 @@ import Map, { Marker, type MapRef } from "react-map-gl/maplibre";
 import { Loader2, Search, X } from "lucide-react";
 import { MAP_DEFAULT_CENTER } from "@/lib/types";
 import type { MapPlace } from "@/lib/places";
+import { placesSearchUrl } from "@/lib/regions";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const VECTOR_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -34,9 +35,21 @@ interface LocationPickerMapProps {
   lat: number | null;
   lng: number | null;
   onPick: (lat: number, lng: number) => void;
+  cityId?: string;
+  cityName?: string;
+  centerLat?: number;
+  centerLng?: number;
 }
 
-export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMapProps) {
+export default function LocationPickerMap({
+  lat,
+  lng,
+  onPick,
+  cityId = "pereira",
+  cityName = "Pereira",
+  centerLat = MAP_DEFAULT_CENTER.lat,
+  centerLng = MAP_DEFAULT_CENTER.lng,
+}: LocationPickerMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef>(null);
   const usedFallback = useRef(false);
@@ -79,7 +92,7 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
     let cancelled = false;
     setSearching(true);
     const timer = window.setTimeout(() => {
-      fetch(`/api/places?mode=geo&q=${encodeURIComponent(q)}`)
+      fetch(placesSearchUrl(q, cityId, "geo"))
         .then((res) => (res.ok ? res.json() : { places: [] }))
         .then((data: { places?: MapPlace[] }) => {
           if (cancelled) return;
@@ -97,7 +110,7 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, cityId]);
 
   function pickPlace(place: MapPlace) {
     setQuery(place.name);
@@ -165,7 +178,7 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
           >
             {hits.length === 0 && !searching ? (
               <li className="px-3 py-2 text-[12px] text-ink-soft">
-                Sin resultados en Pereira / Dosquebradas
+                Sin resultados en {cityName}
               </li>
             ) : (
               hits.map((place) => (
@@ -196,8 +209,8 @@ export default function LocationPickerMap({ lat, lng, onPick }: LocationPickerMa
           workerUrl={WORKER_URL}
           mapStyle={mapStyle}
           initialViewState={{
-            latitude: lat ?? MAP_DEFAULT_CENTER.lat,
-            longitude: lng ?? MAP_DEFAULT_CENTER.lng,
+            latitude: lat ?? centerLat,
+            longitude: lng ?? centerLng,
             zoom: lat !== null ? 16 : 13,
           }}
           style={{ width: "100%", height: "100%" }}

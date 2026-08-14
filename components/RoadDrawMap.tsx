@@ -7,6 +7,7 @@ import Map, { Layer, Marker, Source, type MapRef } from "react-map-gl/maplibre";
 import { Loader2, Search, Undo2, X } from "lucide-react";
 import { MAP_DEFAULT_CENTER, ROAD_HAZARD_RED, ROAD_HAZARD_YELLOW, type RoadPoint } from "@/lib/types";
 import type { MapPlace } from "@/lib/places";
+import { placesSearchUrl } from "@/lib/regions";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const VECTOR_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -31,9 +32,20 @@ const WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 interface RoadDrawMapProps {
   path: RoadPoint[];
   onChange: (path: RoadPoint[]) => void;
+  cityId?: string;
+  cityName?: string;
+  centerLat?: number;
+  centerLng?: number;
 }
 
-export default function RoadDrawMap({ path, onChange }: RoadDrawMapProps) {
+export default function RoadDrawMap({
+  path,
+  onChange,
+  cityId = "pereira",
+  cityName = "Pereira",
+  centerLat = MAP_DEFAULT_CENTER.lat,
+  centerLng = MAP_DEFAULT_CENTER.lng,
+}: RoadDrawMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef>(null);
   const usedFallback = useRef(false);
@@ -67,7 +79,7 @@ export default function RoadDrawMap({ path, onChange }: RoadDrawMapProps) {
     let cancelled = false;
     setSearching(true);
     const timer = window.setTimeout(() => {
-      fetch(`/api/places?mode=geo&q=${encodeURIComponent(q)}`)
+      fetch(placesSearchUrl(q, cityId, "geo"))
         .then((res) => (res.ok ? res.json() : { places: [] }))
         .then((data: { places?: MapPlace[] }) => {
           if (cancelled) return;
@@ -85,7 +97,7 @@ export default function RoadDrawMap({ path, onChange }: RoadDrawMapProps) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, cityId]);
 
   const lineData = {
     type: "Feature" as const,
@@ -141,7 +153,7 @@ export default function RoadDrawMap({ path, onChange }: RoadDrawMapProps) {
             className="absolute inset-x-0 top-[calc(100%+4px)] z-20 max-h-36 overflow-y-auto rounded-2xl bg-paper py-1 shadow-[0_8px_28px_rgba(28,20,16,0.16)] ring-1 ring-black/8 dark:bg-[#1c1814]"
           >
             {hits.length === 0 && !searching ? (
-              <li className="px-3 py-2 text-[12px] text-ink-soft">Sin resultados</li>
+              <li className="px-3 py-2 text-[12px] text-ink-soft">Sin resultados en {cityName}</li>
             ) : (
               hits.map((place) => (
                 <li key={place.id} role="option">
@@ -177,8 +189,8 @@ export default function RoadDrawMap({ path, onChange }: RoadDrawMapProps) {
           workerUrl={WORKER_URL}
           mapStyle={mapStyle}
           initialViewState={{
-            latitude: MAP_DEFAULT_CENTER.lat,
-            longitude: MAP_DEFAULT_CENTER.lng,
+            latitude: centerLat,
+            longitude: centerLng,
             zoom: 14,
           }}
           style={{ width: "100%", height: "100%" }}

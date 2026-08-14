@@ -16,6 +16,7 @@ import { createCollectionPoint, type ActionResult } from "@/app/actions";
 import { reverseGeocode } from "@/lib/geocode";
 import { cn, googleMapsUrl } from "@/lib/utils";
 import { MUNICIPALITIES, type CollectionPoint, type Municipality } from "@/lib/types";
+import { isRisaraldaMetro, type AppCity } from "@/lib/regions";
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,
@@ -24,6 +25,7 @@ const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
 
 interface CollectionPointsProps {
   points: CollectionPoint[];
+  city?: AppCity;
 }
 
 type MunicipalityFilter = "todos" | Municipality;
@@ -47,7 +49,7 @@ const FIELD_CLASS =
   "w-full rounded-2xl bg-black/5 px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-soft/60 focus:ring-2 focus:ring-forest/30 dark:bg-white/10";
 const LABEL_CLASS = "mb-1 block text-[12px] font-medium text-ink-soft";
 
-export default function CollectionPoints({ points }: CollectionPointsProps) {
+export default function CollectionPoints({ points, city }: CollectionPointsProps) {
   const [allPoints, setAllPoints] = useState<CollectionPoint[]>(points);
   const [prevPoints, setPrevPoints] = useState(points);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
@@ -67,30 +69,34 @@ export default function CollectionPoints({ points }: CollectionPointsProps) {
 
   return (
     <div>
-      <div className="mb-2 flex items-center gap-2">
-        <div
-          className="flex flex-1 items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10"
-          role="group"
-          aria-label="Filtrar por municipio"
-        >
-          {MUNICIPALITY_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setMunicipality(f.key)}
-              aria-pressed={municipality === f.key}
-              className={cn(
-                "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
-                municipality === f.key
-                  ? "bg-ink text-paper shadow-sm"
-                  : "text-ink-soft"
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
+      {!city || isRisaraldaMetro(city) ? (
+        <div className="mb-2 flex items-center gap-2">
+          <div
+            className="flex flex-1 items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10"
+            role="group"
+            aria-label="Filtrar por municipio"
+          >
+            {MUNICIPALITY_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setMunicipality(f.key)}
+                aria-pressed={municipality === f.key}
+                className={cn(
+                  "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
+                  municipality === f.key
+                    ? "bg-ink text-paper shadow-sm"
+                    : "text-ink-soft"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className="mb-2 text-[13px] font-medium text-ink-soft">Acopio en {city.name}</p>
+      )}
 
       {filteredPoints.length === 0 ? (
         <div className="mt-2 rounded-[22px] bg-black/5 px-4 py-8 text-center dark:bg-white/5">

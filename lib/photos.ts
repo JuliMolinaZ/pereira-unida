@@ -1,5 +1,6 @@
 export const PHOTO_BUCKET = "community-photos";
 export const MAX_PHOTOS_PER_ENTRY = 3;
+export const MAX_RENTAL_PHOTOS = 6;
 /** Tope duro en el server (después de comprimir en el celular). */
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 /** Tope al elegir: un disparo de cámara puede irse a 8–15 MB. */
@@ -25,11 +26,11 @@ export function isAllowedPhotoType(type: string): boolean {
   return ALLOWED_PHOTO_TYPES.has(type.toLowerCase());
 }
 
-export function normalizePhotoUrls(value: unknown): string[] {
+export function normalizePhotoUrls(value: unknown, max = MAX_PHOTOS_PER_ENTRY): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((url): url is string => typeof url === "string" && /^https:\/\//.test(url))
-    .slice(0, MAX_PHOTOS_PER_ENTRY);
+    .slice(0, max);
 }
 
 /** FormData en Server Actions a veces no pasa `instanceof File`. */

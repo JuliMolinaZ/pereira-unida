@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Phone, Search, X } from "lucide-react";
+import { ChevronRight, MapPin, Phone, Search, X } from "lucide-react";
 import BrandMark from "./BrandMark";
 import { EMERGENCY_HOTLINES } from "@/lib/emergency";
-
-const DEV_INSTAGRAM_URL = "https://www.instagram.com/julianmolinaz";
+import { SUPPORT_INSTAGRAM_URL, SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "@/lib/support";
 
 interface HeaderProps {
   liveCount: number;
   criticalCount?: number;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
+  cityName: string;
+  onCityClick: () => void;
 }
 
 export default function Header({
@@ -19,6 +20,8 @@ export default function Header({
   criticalCount = 0,
   searchQuery,
   onSearchQueryChange,
+  cityName,
+  onCityClick,
 }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -26,7 +29,7 @@ export default function Header({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center">
         <div
-          className="glass relative flex items-center overflow-hidden rounded-full py-1 pr-2.5 pl-1 lg:py-1.5 lg:pr-3.5 lg:pl-1.5"
+          className="glass relative flex min-w-0 items-center overflow-hidden rounded-full py-1 pr-2.5 pl-1 lg:py-1.5 lg:pr-3.5 lg:pl-1.5"
           aria-label="Pereira Unida"
         >
           <span
@@ -43,6 +46,24 @@ export default function Header({
           />
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={onCityClick}
+        aria-label={`Estás en ${cityName}. Cambiar ciudad`}
+        className="glass flex min-h-11 w-full items-center gap-2 rounded-full px-3.5 text-left"
+      >
+        <MapPin className="h-5 w-5 shrink-0 text-carmine" aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-semibold text-ink">
+            Estás en {cityName}
+          </span>
+          <span className="block text-[11px] font-medium text-ink-soft">
+            Las ayudas de esta ciudad · Toca para cambiar
+          </span>
+        </span>
+        <ChevronRight className="h-5 w-5 shrink-0 text-ink/45" aria-hidden="true" />
+      </button>
 
       <div className="flex items-center gap-1.5">
         <label className="glass flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full pr-2.5 pl-3.5">
@@ -108,12 +129,21 @@ export default function Header({
                   </a>
                 ))}
                 <a
-                  href={DEV_INSTAGRAM_URL}
+                  href={SUPPORT_WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-0.5 flex items-center justify-between rounded-2xl border-t border-ink/8 px-2.5 py-2.5 text-[13px] font-medium text-ink/70 transition active:bg-ink/8"
                 >
-                  Reportar error al programador
+                  Soporte por WhatsApp
+                  <span className="text-[11px] font-semibold text-ink/50">{SUPPORT_WHATSAPP_DISPLAY}</span>
+                </a>
+                <a
+                  href={SUPPORT_INSTAGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded-2xl px-2.5 py-2.5 text-[13px] font-medium text-ink/70 transition active:bg-ink/8"
+                >
+                  Soporte por Instagram
                 </a>
               </div>
             </>

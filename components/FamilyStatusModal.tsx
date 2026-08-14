@@ -26,6 +26,15 @@ import { cn, formatTimeAgo, googleMapsUrl } from "@/lib/utils";
 import { explainPhotoFailure } from "@/lib/photos";
 import PhotoPicker from "./PhotoPicker";
 import PhotoStrip from "./PhotoStrip";
+import CityBanner from "./CityBanner";
+import {
+  cityById,
+  DEFAULT_CITY_ID,
+  isRisaraldaMetro,
+  municipalityForPin,
+  zoneQueryFor,
+  type AppCity,
+} from "@/lib/regions";
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,
@@ -47,6 +56,8 @@ import {
 interface FamilyStatusModalProps {
   open: boolean;
   onClose: () => void;
+  city?: AppCity;
+  onChangeCity?: () => void;
 }
 
 type Tab = "buscar" | "estoy_bien";
@@ -92,7 +103,12 @@ function addMyId(id: string) {
   }
 }
 
-export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalProps) {
+export default function FamilyStatusModal({
+  open,
+  onClose,
+  city = cityById(DEFAULT_CITY_ID),
+  onChangeCity,
+}: FamilyStatusModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [tab, setTab] = useState<Tab>("buscar");
@@ -103,7 +119,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
   const [searched, setSearched] = useState(false);
   const [isSearching, startSearch] = useTransition();
 
-  const [municipality, setMunicipality] = useState<Municipality>("Pereira");
+  const [municipality, setMunicipality] = useState<Municipality>(() => municipalityForPin(city));
   const [status, setStatus] = useState<PersonStatus>("a_salvo");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
@@ -115,6 +131,10 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
   const [photosBusy, setPhotosBusy] = useState(false);
   const locationRef = useRef({ lat, lng, locationName, municipality, status });
   locationRef.current = { lat, lng, locationName, municipality, status };
+
+  useEffect(() => {
+    setMunicipality(municipalityForPin(city));
+  }, [city]);
   const hasExactLocation = Boolean(lat && lng);
   const photosRef = useRef<File[]>([]);
 
@@ -126,6 +146,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
     async (_prevState: ActionResult<PeopleStatus>, formData: FormData) => {
       const loc = locationRef.current;
       formData.set("municipality", loc.municipality);
+      formData.set("department", city.department);
       formData.set("status", loc.status);
       formData.set("lat", loc.lat);
       formData.set("lng", loc.lng);
@@ -188,18 +209,18 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
     const q = debouncedQuery.trim();
     if (!q) return;
     startSearch(async () => {
-      const data = await searchPersonStatus(q);
+      const data = await searchPersonStatus(q, zoneQueryFor(city));
       setResults(data);
       setSearched(true);
     });
-  }, [debouncedQuery]);
+  }, [debouncedQuery, city]);
 
   // Realtime: si alguien busca mientras llegan altas/actualizaciones,
   // refresca los resultados sin que tenga que volver a escribir.
-  const searchStateRef = useRef({ tab, debouncedQuery });
+  const searchStateRef = useRef({ tab, debouncedQuery, city });
   useEffect(() => {
-    searchStateRef.current = { tab, debouncedQuery };
-  }, [tab, debouncedQuery]);
+    searchStateRef.current = { tab, debouncedQuery, city };
+  }, [tab, debouncedQuery, city]);
 
   useEffect(() => {
     if (!open) return;
@@ -214,7 +235,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
           const trimmed = q.trim();
           if (currentTab === "buscar" && trimmed) {
             startSearch(async () => {
-              const data = await searchPersonStatus(trimmed);
+              const data = await searchPersonStatus(trimmed, zoneQueryFor(searchStateRef.current.city));
               setResults(data);
               setSearched(true);
             });
@@ -237,7 +258,7 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
       onClose();
       setRegisteredPerson(null);
       formRef.current?.reset();
-      setMunicipality("Pereira");
+      setMunicipality(municipalityForPin(city));
       setStatus("a_salvo");
       setLat("");
       setLng("");
@@ -276,11 +297,11 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
       const geo = await reverseGeocode(latitude, longitude);
       if (geo) {
         setLocationName(geo.displayName);
-        setMunicipality(geo.municipality);
+        setMunicipality(municipalityForPin(city, geo.municipality));
         locationRef.current = {
           ...locationRef.current,
           locationName: geo.displayName,
-          municipality: geo.municipality,
+          municipality: municipalityForPin(city, geo.municipality),
         };
       }
       setGeoStatus("success");
@@ -342,7 +363,8 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
       </div>
 
       <div className="px-4 pb-3">
-        <div className="flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
+        <CityBanner city={city} action="familia" onChange={onChangeCity} />
+        <div className="mt-3 flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
           <button
             type="button"
             onClick={() => setTab("buscar")}
@@ -621,6 +643,10 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
                       lat={lat ? Number(lat) : null}
                       lng={lng ? Number(lng) : null}
                       onPick={applyCoords}
+                      cityId={city.id}
+                      cityName={city.name}
+                      centerLat={city.center[0]}
+                      centerLng={city.center[1]}
                     />
                     {hasExactLocation && (
                       <p className="mt-1.5 text-xs text-ink-soft">
@@ -650,24 +676,28 @@ export default function FamilyStatusModal({ open, onClose }: FamilyStatusModalPr
                   </p>
                 )}
 
-                <div className="mt-2 flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
-                  {MUNICIPALITIES.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setMunicipality(m)}
-                      aria-pressed={municipality === m}
-                      className={cn(
-                        "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
-                        municipality === m
-                          ? "bg-ink text-paper shadow-sm"
-                          : "text-ink-soft"
-                      )}
-                    >
-                      📍 {m}
-                    </button>
-                  ))}
-                </div>
+                {isRisaraldaMetro(city) ? (
+                  <div className="mt-2 flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
+                    {MUNICIPALITIES.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setMunicipality(m)}
+                        aria-pressed={municipality === m}
+                        className={cn(
+                          "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
+                          municipality === m
+                            ? "bg-ink text-paper shadow-sm"
+                            : "text-ink-soft"
+                        )}
+                      >
+                        📍 {m}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[13px] font-medium text-ink-soft">Ciudad: {city.name}</p>
+                )}
               </div>
 
               <div>

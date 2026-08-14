@@ -6,6 +6,14 @@ import { Loader2, X } from "lucide-react";
 import { createClosedRoad, type ActionResult } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import {
+  cityById,
+  DEFAULT_CITY_ID,
+  isRisaraldaMetro,
+  municipalityForPin,
+  type AppCity,
+} from "@/lib/regions";
+import CityBanner from "./CityBanner";
+import {
   CLOSED_ROAD_REASON_LABELS,
   CLOSED_ROAD_REASONS,
   MUNICIPALITIES,
@@ -28,6 +36,8 @@ interface ClosedRoadModalProps {
   open: boolean;
   onClose: () => void;
   onCreated: (road: ClosedRoad) => void;
+  city?: AppCity;
+  onChangeCity?: () => void;
 }
 
 const initialState: ActionResult<ClosedRoad> = { success: false };
@@ -35,18 +45,29 @@ const FIELD_CLASS =
   "w-full rounded-2xl bg-black/5 px-4 py-3.5 text-base text-ink outline-none placeholder:text-ink-soft/60 focus:ring-2 focus:ring-carmine/30 dark:bg-white/10";
 const LABEL_CLASS = "mb-1.5 block text-[13px] font-medium text-ink-soft";
 
-export default function ClosedRoadModal({ open, onClose, onCreated }: ClosedRoadModalProps) {
+export default function ClosedRoadModal({
+  open,
+  onClose,
+  onCreated,
+  city = cityById(DEFAULT_CITY_ID),
+  onChangeCity,
+}: ClosedRoadModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState("");
   const [reason, setReason] = useState<ClosedRoadReason>("derrumbe");
-  const [municipality, setMunicipality] = useState<Municipality>("Pereira");
+  const [municipality, setMunicipality] = useState<Municipality>(() => municipalityForPin(city));
   const [path, setPath] = useState<RoadPoint[]>([]);
+
+  useEffect(() => {
+    setMunicipality(municipalityForPin(city));
+  }, [city]);
 
   const [state, formAction, isPending] = useActionState(
     async (_prev: ActionResult<ClosedRoad>, formData: FormData) => {
       formData.set("name", name);
       formData.set("reason", reason);
       formData.set("municipality", municipality);
+      formData.set("department", city.department);
       formData.set("path", JSON.stringify(path));
       const result = await createClosedRoad(formData);
       if (result.success && result.data) {
@@ -107,6 +128,7 @@ export default function ClosedRoadModal({ open, onClose, onCreated }: ClosedRoad
         action={formAction}
         className="max-h-[min(82dvh,760px)] space-y-4 overflow-y-auto px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
+        <CityBanner city={city} action="via" onChange={onChangeCity} />
         <div>
           <label htmlFor="road-name" className={LABEL_CLASS}>
             ¿Qué calle o tramo?
@@ -146,25 +168,36 @@ export default function ClosedRoadModal({ open, onClose, onCreated }: ClosedRoad
 
         <div>
           <span className={LABEL_CLASS}>Dibuja el tramo cerrado</span>
-          <RoadDrawMap path={path} onChange={setPath} />
+          <RoadDrawMap
+            path={path}
+            onChange={setPath}
+            cityId={city.id}
+            cityName={city.name}
+            centerLat={city.center[0]}
+            centerLng={city.center[1]}
+          />
         </div>
 
-        <div className="flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
-          {MUNICIPALITIES.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMunicipality(m)}
-              aria-pressed={municipality === m}
-              className={cn(
-                "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
-                municipality === m ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
-              )}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
+        {isRisaraldaMetro(city) ? (
+          <div className="flex items-center gap-1 rounded-full bg-black/5 p-1 dark:bg-white/10">
+            {MUNICIPALITIES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMunicipality(m)}
+                aria-pressed={municipality === m}
+                className={cn(
+                  "flex-1 rounded-full py-1.5 text-[13px] font-medium transition",
+                  municipality === m ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[13px] font-medium text-ink-soft">Ciudad: {city.name}</p>
+        )}
 
         <div>
           <label htmlFor="road-note" className={LABEL_CLASS}>

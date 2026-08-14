@@ -5,6 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import { type StyleSpecification } from "maplibre-gl";
 import Map, { Layer, Marker, Popup, Source, type MapRef } from "react-map-gl/maplibre";
 import { Locate, Navigation } from "lucide-react";
+import SupportFab from "./SupportFab";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ACOPIO_COLOR,
@@ -12,6 +13,8 @@ import {
   CATEGORY_LABELS,
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
+  RENTAL_COLOR,
+  RENTAL_EMOJI,
   ROAD_HAZARD_RED,
   ROAD_HAZARD_YELLOW,
   CLOSED_ROAD_REASON_LABELS,
@@ -19,6 +22,7 @@ import {
   pinColorForReport,
   type ClosedRoad,
   type CollectionPoint,
+  type Rental,
   type Report,
 } from "@/lib/types";
 import {
@@ -52,6 +56,17 @@ const RASTER_STYLE: StyleSpecification = {
 
 const WORKER_URL = "/maplibre/maplibre-gl-worker.mjs";
 const PIN_POPUP_OFFSET = 62;
+
+function hasMapCoords<T extends { lat: number | null; lng: number | null }>(
+  item: T
+): item is T & { lat: number; lng: number } {
+  return (
+    item.lat != null &&
+    item.lng != null &&
+    Number.isFinite(Number(item.lat)) &&
+    Number.isFinite(Number(item.lng))
+  );
+}
 
 function mixHex(hex: string, target: string, amount: number): string {
   const parse = (h: string) => {
@@ -161,13 +176,20 @@ interface ReportsMapProps {
   points: CollectionPoint[];
   roads?: ClosedRoad[];
   places?: MapPlace[];
+  rentals?: Rental[];
   fitSearchResults?: boolean;
+  fitRentals?: boolean;
   selectedReportId: string | null;
   selectedPlaceId?: string | null;
+  selectedRentalId?: string | null;
   onSelectReport: (id: string) => void;
   onSelectPlace?: (id: string | null) => void;
+  onSelectRental?: (id: string) => void;
   onAddClosedRoad?: () => void;
   onReopenRoad?: (id: string) => void;
+  centerLat?: number;
+  centerLng?: number;
+  cityName?: string;
 }
 
 export default function ReportsMap({
@@ -175,18 +197,26 @@ export default function ReportsMap({
   points,
   roads = [],
   places = [],
+  rentals = [],
   fitSearchResults = false,
+  fitRentals = false,
   selectedReportId,
   selectedPlaceId = null,
+  selectedRentalId = null,
   onSelectReport,
   onSelectPlace,
+  onSelectRental,
   onAddClosedRoad,
   onReopenRoad,
+  centerLat = MAP_DEFAULT_CENTER.lat,
+  centerLng = MAP_DEFAULT_CENTER.lng,
+  cityName = "Pereira",
 }: ReportsMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapRef>(null);
   const usedFallback = useRef(false);
   const lastSearchFitKey = useRef("");
+  const lastRentalFitKey = useRef("");
   const [mapStyle, setMapStyle] = useState<string | StyleSpecification>(VECTOR_STYLE);
   const [openPointId, setOpenPointId] = useState<string | null>(null);
   const [openPlaceId, setOpenPlaceId] = useState<string | null>(null);
@@ -207,15 +237,13 @@ export default function ReportsMap({
     })),
   };
 
-  const geolocatedReports = reports.filter(
-    (r): r is Report & { lat: number; lng: number } => r.lat !== null && r.lng !== null
-  );
-  const geolocatedPoints = points.filter(
-    (p): p is CollectionPoint & { lat: number; lng: number } => p.lat !== null && p.lng !== null
-  );
+  const geolocatedReports = reports.filter(hasMapCoords);
+  const geolocatedPoints = points.filter(hasMapCoords);
+  const geolocatedRentals = rentals.filter(hasMapCoords);
   const missingLocationCount = reports.length - geolocatedReports.length;
 
   const selectedReport = geolocatedReports.find((r) => r.id === selectedReportId);
+  const selectedRental = geolocatedRentals.find((item) => item.id === selectedRentalId);
   const openPoint = geolocatedPoints.find((p) => p.id === openPointId);
   const activePlaceId = selectedPlaceId ?? openPlaceId;
   const openPlace = places.find((p) => p.id === activePlaceId) ?? null;
@@ -234,15 +262,15 @@ export default function ReportsMap({
   }, [selectedReport]);
 
   useEffect(() => {
-    if (!openPlace || selectedReport) return;
+    if (!selectedRental || selectedReport) return;
     mapRef.current?.flyTo({
-      center: [openPlace.lng, openPlace.lat],
+      center: [selectedRental.lng, selectedRental.lat],
       zoom: Math.max(mapRef.current.getZoom() ?? MAP_DEFAULT_ZOOM, 15),
       duration: 700,
     });
-  }, [openPlace, selectedReport]);
+  }, [selectedRental, selectedReport]);
 
-  const searchFitKey = `${fitSearchResults ? 1 : 0}:${places.map((p) => p.id).join(",")}:${geolocatedReports.map((r) => r.id).join(",")}:${geolocatedPoints.map((p) => p.id).join(",")}`;
+  const searchFitKey = `${fitSearchResults ? 1 : 0}:${places.map((p) => p.id).join(",")}:${geolocatedReports.map((r) => r.id).join(",")}:${geolocatedPoints.map((p) => p.id).join(",")}:${geolocatedRentals.map((p) => p.id).join(",")}`;
 
   useEffect(() => {
     if (!fitSearchResults || selectedReport || openPlace) return;
@@ -254,6 +282,7 @@ export default function ReportsMap({
     const coords: [number, number][] = [
       ...geolocatedReports.map((r) => [r.lng, r.lat] as [number, number]),
       ...geolocatedPoints.map((p) => [p.lng, p.lat] as [number, number]),
+      ...geolocatedRentals.map((p) => [p.lng, p.lat] as [number, number]),
       ...places.map((p) => [p.lng, p.lat] as [number, number]),
     ];
     if (coords.length === 0) return;
@@ -280,6 +309,43 @@ export default function ReportsMap({
     places,
   ]);
 
+  const rentalFitKey = `${fitRentals ? 1 : 0}:${geolocatedRentals.map((item) => item.id).join(",")}`;
+
+  useEffect(() => {
+    if (!fitRentals) {
+      lastRentalFitKey.current = "";
+      return;
+    }
+    if (selectedRental) return;
+    if (geolocatedRentals.length === 0) return;
+    if (rentalFitKey === lastRentalFitKey.current) return;
+    lastRentalFitKey.current = rentalFitKey;
+
+    const coords = geolocatedRentals.map(
+      (item) => [Number(item.lng), Number(item.lat)] as [number, number]
+    );
+
+    const run = () => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (coords.length === 1) {
+        map.flyTo({ center: coords[0], zoom: 15, duration: 700 });
+        return;
+      }
+      const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+      for (const coord of coords) bounds.extend(coord);
+      map.fitBounds(bounds, {
+        padding: { top: 88, bottom: 200, left: 36, right: 36 },
+        maxZoom: 14,
+        duration: 800,
+      });
+    };
+
+    run();
+    const retry = window.setTimeout(run, 250);
+    return () => window.clearTimeout(retry);
+  }, [fitRentals, rentalFitKey, selectedRental, geolocatedRentals]);
+
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -295,9 +361,17 @@ export default function ReportsMap({
     };
   }, []);
 
+  useEffect(() => {
+    mapRef.current?.flyTo({
+      center: [centerLng, centerLat],
+      zoom: MAP_DEFAULT_ZOOM,
+      duration: 800,
+    });
+  }, [centerLat, centerLng]);
+
   function recenter() {
     mapRef.current?.flyTo({
-      center: [MAP_DEFAULT_CENTER.lng, MAP_DEFAULT_CENTER.lat],
+      center: [centerLng, centerLat],
       zoom: MAP_DEFAULT_ZOOM,
       duration: 700,
     });
@@ -311,8 +385,8 @@ export default function ReportsMap({
         workerUrl={WORKER_URL}
         mapStyle={mapStyle}
         initialViewState={{
-          latitude: MAP_DEFAULT_CENTER.lat,
-          longitude: MAP_DEFAULT_CENTER.lng,
+          latitude: centerLat,
+          longitude: centerLng,
           zoom: MAP_DEFAULT_ZOOM,
         }}
         style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
@@ -418,6 +492,35 @@ export default function ReportsMap({
             />
           </Marker>
         ))}
+
+        {geolocatedRentals.map((rental) => {
+          const selected = rental.id === selectedRentalId;
+          return (
+            <Marker
+              key={rental.id}
+              latitude={Number(rental.lat)}
+              longitude={Number(rental.lng)}
+              anchor="bottom"
+              offset={[0, 0]}
+              style={{ zIndex: selected ? 4 : 2 }}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setOpenPointId(null);
+                setOpenPlaceId(null);
+                onSelectPlace?.(null);
+                onSelectRental?.(rental.id);
+              }}
+            >
+              <MapPinMarker
+                emoji={RENTAL_EMOJI}
+                color={RENTAL_COLOR}
+                selected={selected}
+                dimmed={rental.status !== "disponible"}
+                label={`${rental.property_type}: ${rental.neighborhood || rental.address}`}
+              />
+            </Marker>
+          );
+        })}
 
         {places.map((place) => (
           <Marker
@@ -579,6 +682,7 @@ export default function ReportsMap({
       </Map>
 
       <div className="absolute right-2.5 bottom-[calc(var(--sheet-current)+var(--dock-offset)+0.85rem)] z-10 flex flex-col gap-2 lg:right-[calc(var(--sheet-panel-width)+1.5rem)] lg:bottom-[calc(var(--dock-height)+1.5rem)]">
+        <SupportFab />
         {onAddClosedRoad ? (
           <button
             type="button"
@@ -592,7 +696,7 @@ export default function ReportsMap({
         <button
           type="button"
           onClick={recenter}
-          aria-label="Centrar mapa en Pereira / Dosquebradas"
+          aria-label={`Centrar mapa en ${cityName}`}
           className="glass flex h-10 w-10 items-center justify-center rounded-full text-ink lg:h-11 lg:w-11"
         >
           <Locate className="h-[18px] w-[18px]" />

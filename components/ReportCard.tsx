@@ -25,6 +25,7 @@ export default function ReportCard({
   onSelect,
   compact = false,
   anchor = true,
+  showMunicipality = false,
 }: {
   report: Report;
   onStatusUpdated: (report: Report) => void;
@@ -32,6 +33,7 @@ export default function ReportCard({
   onSelect?: () => void;
   compact?: boolean;
   anchor?: boolean;
+  showMunicipality?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +95,7 @@ export default function ReportCard({
               <span className="shrink-0">{CATEGORY_EMOJI[report.category]}</span>
               <span className="min-w-0 truncate">
                 {CATEGORY_LABELS[report.category]} · {report.location_name}
+                {showMunicipality ? ` · ${report.municipality}` : ""}
               </span>
               <span className="ml-auto shrink-0 text-[10px] text-ink-soft/70">
                 {formatTimeAgo(report.last_confirmed_at || report.created_at)}
@@ -173,7 +176,8 @@ export default function ReportCard({
       <p className="mt-1 flex items-start gap-1 text-[13px] text-ink-soft">
         <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 break-words">
-          {report.location_name} · {report.municipality}
+          {report.location_name}
+          {showMunicipality ? ` · ${report.municipality}` : ""}
         </span>
       </p>
 

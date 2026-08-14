@@ -25,6 +25,8 @@ import {
   type Municipality,
   type PeopleStatus,
   type PersonStatus,
+  type Rental,
+  type RentalStatus,
   type Report,
   type ReportCategory,
   type ReportStatus,
@@ -37,10 +39,13 @@ import {
   isPhotoBlob,
   MAX_PHOTO_BYTES,
   MAX_PHOTOS_PER_ENTRY,
+  MAX_RENTAL_PHOTOS,
   normalizePhotoUrls,
   PHOTO_BUCKET,
 } from "@/lib/photos";
 import { deleteSpaceObjects, isSpacesConfigured, uploadSpaceObject } from "@/lib/spaces";
+import { DEFAULT_DEPARTMENT, inColombia, isKnownCityName } from "@/lib/regions";
+import { parseMonthlyRent } from "@/lib/rentals";
 
 const VALID_CATEGORIES: ReportCategory[] = [
   "alimentos",
@@ -63,7 +68,6 @@ const VALID_STATUS: ReportStatus[] = [
   "informacion_falsa",
   "duplicado",
 ];
-const VALID_MUNICIPALITIES: Municipality[] = ["Pereira", "Dosquebradas"];
 const VALID_PERSON_STATUS: PersonStatus[] = [
   "a_salvo",
   "necesito_traslado",
@@ -88,7 +92,7 @@ function parseRoadPath(raw: string): RoadPoint[] | null {
       const lat = Number((point as { lat?: unknown }).lat);
       const lng = Number((point as { lng?: unknown }).lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      if (lat < 4.5 || lat > 5.2 || lng < -76.1 || lng > -75.3) return null;
+      if (!inColombia(lat, lng)) return null;
       path.push({ lat, lng });
     }
     return path;
@@ -115,11 +119,61 @@ function isMissingHelpOffersTable(message: string | undefined): boolean {
   );
 }
 
+function isMissingRentalsTable(message: string | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  if (lower.includes("rental_comments")) return false;
+  return (
+    (lower.includes("schema cache") && lower.includes("public.rentals")) ||
+    (lower.includes("could not find the table") && /\brentals\b/.test(lower)) ||
+    (lower.includes("relation") && lower.includes("rentals") && lower.includes("does not exist"))
+  );
+}
+
+function isMissingRentalCommentsTable(message: string | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("rental_comments");
+}
+
+function isMissingDepartmentColumn(message: string | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return lower.includes("department") && (lower.includes("column") || lower.includes("schema cache"));
+}
+
+function parseCityFields(formData: FormData): { municipality: string; department: string } | { error: string } {
+  const municipality = String(formData.get("municipality") ?? "Pereira").trim();
+  const department =
+    String(formData.get("department") ?? DEFAULT_DEPARTMENT).trim() || DEFAULT_DEPARTMENT;
+  if (!isKnownCityName(municipality)) return { error: "Ciudad inválida." };
+  return { municipality, department };
+}
+
+async function insertRow(
+  client: SupabaseClient,
+  table: string,
+  row: Record<string, unknown>
+) {
+  let { data, error } = await client.from(table).insert(row).select().single();
+  if (error && isMissingDepartmentColumn(error.message) && "department" in row) {
+    const { department: _department, ...rest } = row;
+    ({ data, error } = await client.from(table).insert(rest).select().single());
+  }
+  return { data, error };
+}
+
+export type ZoneFilter = {
+  department?: string;
+  municipality?: string | "todos";
+};
+
 const EMPTY_HOME = {
   reports: [] as Report[],
   points: [] as CollectionPoint[],
   roads: [] as ClosedRoad[],
   offers: [] as HelpOffer[],
+  rentals: [] as Rental[],
 };
 
 export interface ActionResult<T = void> {
@@ -269,16 +323,17 @@ function photoContentType(kind: "jpeg" | "png" | "webp" | "heic"): string {
  */
 async function uploadFormPhotos(
   client: SupabaseClient,
-  folder: "reports" | "people",
-  formData: FormData
+  folder: "reports" | "people" | "rentals",
+  formData: FormData,
+  maxPhotos = MAX_PHOTOS_PER_ENTRY
 ): Promise<{ urls: string[]; error?: string }> {
   const files = formData.getAll("photos").filter(isPhotoBlob);
 
   if (files.length === 0) return { urls: [] };
-  if (files.length > MAX_PHOTOS_PER_ENTRY) {
+  if (files.length > maxPhotos) {
     return {
       urls: [],
-      error: `Puedes adjuntar máximo ${MAX_PHOTOS_PER_ENTRY} fotos.`,
+      error: `Puedes adjuntar máximo ${maxPhotos} fotos.`,
     };
   }
 
@@ -391,6 +446,7 @@ type ReportListFilters = {
   category?: ReportCategory | "todos";
   urgency?: UrgentLevel | "todos";
   municipality?: Municipality | "todos";
+  department?: string;
   search?: string;
 };
 
@@ -398,7 +454,7 @@ async function loadReports(
   client: SupabaseClient,
   filters?: ReportListFilters
 ): Promise<{ rows: Report[]; error: string | null }> {
-  const run = (select: string) => {
+  const run = (select: string, withDepartment: boolean) => {
     let query = client
       .from("reports")
       .select(select)
@@ -409,6 +465,9 @@ async function loadReports(
     }
     if (filters?.urgency && filters.urgency !== "todos") {
       query = query.eq("urgent_level", filters.urgency);
+    }
+    if (withDepartment && filters?.department) {
+      query = query.eq("department", filters.department);
     }
     if (filters?.municipality && filters.municipality !== "todos") {
       query = query.eq("municipality", filters.municipality);
@@ -422,9 +481,15 @@ async function loadReports(
     return query;
   };
 
-  let { data, error } = await run(SELECT_WITH_COMMENTS);
+  let { data, error } = await run(SELECT_WITH_COMMENTS, true);
+  if (error && isMissingDepartmentColumn(error.message)) {
+    ({ data, error } = await run(SELECT_WITH_COMMENTS, false));
+  }
   if (error && /comments/i.test(error.message)) {
-    ({ data, error } = await run("*"));
+    ({ data, error } = await run("*", true));
+    if (error && isMissingDepartmentColumn(error.message)) {
+      ({ data, error } = await run("*", false));
+    }
   }
   if (error) return { rows: [], error: error.message };
   return {
@@ -481,9 +546,9 @@ export async function createReport(
   const urgentLevel = String(
     formData.get("urgent_level") ?? "moderado"
   ) as UrgentLevel;
-  const municipality = String(
-    formData.get("municipality") ?? "Pereira"
-  ) as Municipality;
+  const municipality = String(formData.get("municipality") ?? "Pereira").trim();
+  const department =
+    String(formData.get("department") ?? DEFAULT_DEPARTMENT).trim() || DEFAULT_DEPARTMENT;
   const contactPhone = String(formData.get("contact_phone") ?? "").trim();
   const latRaw = formData.get("lat");
   const lngRaw = formData.get("lng");
@@ -500,14 +565,17 @@ export async function createReport(
     return { success: false, error: "Categoría inválida." };
   if (!VALID_URGENCY.includes(urgentLevel))
     return { success: false, error: "Nivel de urgencia inválido." };
-  if (!VALID_MUNICIPALITIES.includes(municipality))
-    return { success: false, error: "Municipio inválido." };
+  if (!isKnownCityName(municipality))
+    return { success: false, error: "Ciudad inválida." };
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return {
       success: false,
       error: "Selecciona tu ubicación exacta con el GPS o en el mapa.",
     };
+  }
+  if (!inColombia(lat, lng)) {
+    return { success: false, error: "La ubicación debe estar en Colombia." };
   }
 
   const allowed = await checkRateLimit("createReport", 5, 60_000);
@@ -524,23 +592,20 @@ export async function createReport(
   const photos = await uploadFormPhotos(sb.client, "reports", formData);
   if (photos.error) return { success: false, error: photos.error };
 
-  const { data, error } = await sb.client
-    .from("reports")
-    .insert({
-      title,
-      description,
-      category,
-      urgent_level: urgentLevel,
-      status: "buscando",
-      municipality,
-      location_name: locationName,
-      lat,
-      lng,
-      contact_phone: contactPhone,
-      photo_urls: photos.urls,
-    })
-    .select()
-    .single();
+  const { data, error } = await insertRow(sb.client, "reports", {
+    title,
+    description,
+    category,
+    urgent_level: urgentLevel,
+    status: "buscando",
+    municipality,
+    department,
+    location_name: locationName,
+    lat,
+    lng,
+    contact_phone: contactPhone,
+    photo_urls: photos.urls,
+  });
 
   if (error) {
     return {
@@ -681,7 +746,8 @@ export async function getReports(
   categoryFilter?: ReportCategory | "todos",
   urgencyFilter?: UrgentLevel | "todos",
   searchQuery?: string,
-  municipalityFilter?: Municipality | "todos"
+  municipalityFilter?: Municipality | "todos",
+  departmentFilter?: string
 ): Promise<Report[] | null> {
   const sb = getSupabaseOrError();
   if (!sb.client) return null;
@@ -691,6 +757,7 @@ export async function getReports(
       category: categoryFilter,
       urgency: urgencyFilter,
       municipality: municipalityFilter,
+      department: departmentFilter,
       search: searchQuery,
     });
     if (pack.error) {
@@ -761,7 +828,9 @@ export async function getCollectionPoints(): Promise<CollectionPoint[]> {
  *   2. Red/DNS caído con config válida ("fetch failed").
  *   3. Config válida pero falta aplicar schema.sql (tabla/relation inexistente).
  */
-export async function getHomeData(): Promise<HomeData> {
+export async function getHomeData(
+  zone: ZoneFilter = { department: DEFAULT_DEPARTMENT }
+): Promise<HomeData> {
   const cfg = getSupabaseConfigError();
   if (cfg) return { ...EMPTY_HOME, error: cfg };
 
@@ -770,12 +839,67 @@ export async function getHomeData(): Promise<HomeData> {
     return { ...EMPTY_HOME, error: sb.error };
   }
 
+  const applyZone = <T extends { eq: (col: string, val: string) => T }>(
+    query: T,
+    withDepartment: boolean
+  ): T => {
+    let next = query;
+    if (withDepartment && zone.department) next = next.eq("department", zone.department);
+    if (zone.municipality && zone.municipality !== "todos") {
+      next = next.eq("municipality", zone.municipality);
+    }
+    return next;
+  };
+
   try {
-    const [reportsPack, pointsRes, roadsRes, offersRes] = await Promise.all([
-      loadReports(sb.client),
-      sb.client.from("collection_points").select("*").order("name", { ascending: true }),
-      sb.client.from("closed_roads").select("*").order("created_at", { ascending: false }),
-      sb.client.from("help_offers").select("*").order("created_at", { ascending: false }),
+    const loadSide = async (
+      table: "collection_points" | "closed_roads" | "help_offers" | "rentals",
+      orderCol: string,
+      ascending: boolean
+    ) => {
+      const first = await applyZone(
+        sb.client!.from(table).select("*").order(orderCol, { ascending }),
+        true
+      );
+      if (first.error && isMissingDepartmentColumn(first.error.message)) {
+        return applyZone(
+          sb.client!.from(table).select("*").order(orderCol, { ascending }),
+          false
+        );
+      }
+      return first;
+    };
+
+    const loadRentals = async () => {
+      const withComments = await applyZone(
+        sb.client!.from("rentals").select("*, rental_comments(count)").order("created_at", {
+          ascending: false,
+        }),
+        true
+      );
+      if (withComments.error && isMissingDepartmentColumn(withComments.error.message)) {
+        return applyZone(
+          sb.client!.from("rentals").select("*, rental_comments(count)").order("created_at", {
+            ascending: false,
+          }),
+          false
+        );
+      }
+      if (withComments.error && isMissingRentalCommentsTable(withComments.error.message)) {
+        return loadSide("rentals", "created_at", false);
+      }
+      return withComments;
+    };
+
+    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes] = await Promise.all([
+      loadReports(sb.client, {
+        department: zone.department,
+        municipality: zone.municipality,
+      }),
+      loadSide("collection_points", "name", true),
+      loadSide("closed_roads", "created_at", false),
+      loadSide("help_offers", "created_at", false),
+      loadRentals(),
     ]);
 
     const reports = reportsPack.rows;
@@ -784,19 +908,26 @@ export async function getHomeData(): Promise<HomeData> {
     const roads = roadsMissing ? [] : ((roadsRes.data ?? []) as ClosedRoad[]);
     const offersMissing = isMissingHelpOffersTable(offersRes.error?.message);
     const offers = offersMissing ? [] : ((offersRes.data ?? []) as HelpOffer[]);
+    const rentalsMissing = isMissingRentalsTable(rentalsRes.error?.message);
+    const rentals = rentalsMissing
+      ? []
+      : ((rentalsRes.data ?? []) as Record<string, unknown>[]).map((row) =>
+          normalizeRental(row as unknown as Rental & { rental_comments?: unknown })
+        );
     const rawError =
       reportsPack.error ??
       pointsRes.error?.message ??
       (roadsMissing ? null : roadsRes.error?.message) ??
       (offersMissing ? null : offersRes.error?.message) ??
+      (rentalsMissing ? null : rentalsRes.error?.message) ??
       null;
 
     if (rawError) {
       console.error("getHomeData error:", rawError);
-      return { reports, points, roads, offers, error: classifyHomeDataError(rawError) };
+      return { reports, points, roads, offers, rentals, error: classifyHomeDataError(rawError) };
     }
 
-    return { reports, points, roads, offers, error: null };
+    return { reports, points, roads, offers, rentals, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("getHomeData error:", message);
@@ -813,9 +944,9 @@ export async function registerPersonStatus(
 ): Promise<ActionResult<PeopleStatus>> {
   const fullName = String(formData.get("full_name") ?? "").trim();
   const documentId = String(formData.get("document_id") ?? "").trim();
-  const municipality = String(
-    formData.get("municipality") ?? ""
-  ) as Municipality;
+  const place = parseCityFields(formData);
+  if ("error" in place) return { success: false, error: place.error };
+  const { municipality, department } = place;
   const latRaw = formData.get("lat");
   const lngRaw = formData.get("lng");
   const lat = latRaw ? Number(latRaw) : NaN;
@@ -828,13 +959,14 @@ export async function registerPersonStatus(
 
   if (!fullName)
     return { success: false, error: "El nombre completo es obligatorio." };
-  if (!VALID_MUNICIPALITIES.includes(municipality))
-    return { success: false, error: "Municipio inválido." };
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return {
       success: false,
       error: "Selecciona tu ubicación exacta con el GPS o en el mapa.",
     };
+  }
+  if (!inColombia(lat, lng)) {
+    return { success: false, error: "La ubicación debe estar en Colombia." };
   }
   if (!VALID_PERSON_STATUS.includes(status))
     return { success: false, error: "Estado inválido." };
@@ -864,6 +996,7 @@ export async function registerPersonStatus(
     full_name: fullName,
     document_id: documentId || null,
     municipality,
+    department,
     neighborhood,
     lat,
     lng,
@@ -872,11 +1005,7 @@ export async function registerPersonStatus(
     photo_urls: photos.urls,
   };
 
-  let { data, error } = await sb.client
-    .from("people_status")
-    .insert(payload)
-    .select()
-    .single();
+  let { data, error } = await insertRow(sb.client, "people_status", payload);
 
   if (error && /column .*lat|lng/i.test(error.message)) {
     const fallback = await sb.client
@@ -912,7 +1041,8 @@ export async function registerPersonStatus(
  * número de documento.
  */
 export async function searchPersonStatus(
-  query: string
+  query: string,
+  zone?: ZoneFilter
 ): Promise<PeopleStatus[]> {
   const q = sanitizeIlikeInput(query);
   if (!q) return [];
@@ -920,13 +1050,25 @@ export async function searchPersonStatus(
   const sb = getSupabaseOrError();
   if (!sb.client) return [];
 
-  try {
-    const { data, error } = await sb.client
+  const run = async (withDepartment: boolean) => {
+    let next = sb.client!
       .from("people_status")
       .select("*")
       .or(`full_name.ilike.%${q}%,document_id.ilike.%${q}%`)
       .order("created_at", { ascending: false })
       .limit(25);
+    if (withDepartment && zone?.department) next = next.eq("department", zone.department);
+    if (zone?.municipality && zone.municipality !== "todos") {
+      next = next.eq("municipality", zone.municipality);
+    }
+    return next;
+  };
+
+  try {
+    let { data, error } = await run(true);
+    if (error && isMissingDepartmentColumn(error.message)) {
+      ({ data, error } = await run(false));
+    }
 
     if (error) {
       console.error("searchPersonStatus error:", error.message);
@@ -1046,15 +1188,14 @@ export async function createClosedRoad(
   const name = String(formData.get("name") ?? "").trim();
   const reason = String(formData.get("reason") ?? "") as ClosedRoadReason;
   const note = String(formData.get("note") ?? "").trim();
-  const municipality = String(formData.get("municipality") ?? "") as Municipality;
+  const place = parseCityFields(formData);
+  if ("error" in place) return { success: false, error: place.error };
+  const { municipality, department } = place;
   const path = parseRoadPath(String(formData.get("path") ?? ""));
 
   if (!name) return { success: false, error: "Indica el nombre de la calle o tramo." };
   if (!VALID_ROAD_REASONS.includes(reason)) {
     return { success: false, error: "Elige por qué no se puede transitar." };
-  }
-  if (!VALID_MUNICIPALITIES.includes(municipality)) {
-    return { success: false, error: "Municipio inválido." };
   }
   if (!path) {
     return {
@@ -1074,18 +1215,15 @@ export async function createClosedRoad(
   const sb = getSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
-  const { data, error } = await sb.client
-    .from("closed_roads")
-    .insert({
-      name,
-      reason,
-      note,
-      municipality,
-      path,
-      status: "cerrada",
-    })
-    .select()
-    .single();
+  const { data, error } = await insertRow(sb.client, "closed_roads", {
+    name,
+    reason,
+    note,
+    municipality,
+    department,
+    path,
+    status: "cerrada",
+  });
 
   if (error) {
     return {
@@ -1130,6 +1268,9 @@ export async function createHelpOffer(
   const skill = String(formData.get("skill") ?? "") as HelpSkill;
   const description = String(formData.get("description") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
+  const place = parseCityFields(formData);
+  if ("error" in place) return { success: false, error: place.error };
+  const { municipality, department } = place;
 
   if (!fullName) return { success: false, error: "Escribe tu nombre." };
   if (!HELP_SKILLS.includes(skill)) {
@@ -1151,18 +1292,15 @@ export async function createHelpOffer(
   const sb = getSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
-  const { data, error } = await sb.client
-    .from("help_offers")
-    .insert({
-      full_name: fullName.slice(0, 80),
-      skill,
-      description: description.slice(0, 280),
-      phone,
-      municipality: "Pereira",
-      status: "activa",
-    })
-    .select()
-    .single();
+  const { data, error } = await insertRow(sb.client, "help_offers", {
+    full_name: fullName.slice(0, 80),
+    skill,
+    description: description.slice(0, 280),
+    phone,
+    municipality,
+    department,
+    status: "activa",
+  });
 
   if (error) {
     return {
@@ -1227,9 +1365,9 @@ export async function createCollectionPoint(
 
   const name = String(formData.get("name") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
-  const municipality = String(
-    formData.get("municipality") ?? ""
-  ) as Municipality;
+  const place = parseCityFields(formData);
+  if ("error" in place) return { success: false, error: place.error };
+  const { municipality, department } = place;
   const suppliesRaw = String(formData.get("supplies_needed") ?? "");
   const suppliesNeeded = suppliesRaw
     .split(",")
@@ -1243,8 +1381,6 @@ export async function createCollectionPoint(
   if (!name) return { success: false, error: "El nombre es obligatorio." };
   if (!address)
     return { success: false, error: "La dirección es obligatoria." };
-  if (!VALID_MUNICIPALITIES.includes(municipality))
-    return { success: false, error: "Municipio inválido." };
 
   // La URL de Supabase es la misma para el cliente anon y el de service
   // role: si es un placeholder, ambos van a fallar en fetch igual.
@@ -1256,23 +1392,23 @@ export async function createCollectionPoint(
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return { success: false, error: "Marca el punto exacto en el mapa." };
   }
+  if (!inColombia(lat, lng)) {
+    return { success: false, error: "La ubicación debe estar en Colombia." };
+  }
 
   const supabase = getAcopioSupabaseClient();
 
-  const { data, error } = await supabase
-    .from("collection_points")
-    .insert({
-      name,
-      address,
-      municipality,
-      supplies_needed: suppliesNeeded,
-      open_hours: openHours,
-      contact,
-      lat,
-      lng,
-    })
-    .select()
-    .single();
+  const { data, error } = await insertRow(supabase, "collection_points", {
+    name,
+    address,
+    municipality,
+    department,
+    supplies_needed: suppliesNeeded,
+    open_hours: openHours,
+    contact,
+    lat,
+    lng,
+  });
 
   if (error) {
     return { success: false, error: error.message };
@@ -1280,4 +1416,353 @@ export async function createCollectionPoint(
 
   revalidatePath("/");
   return { success: true, data: data as CollectionPoint };
+}
+
+function toCoord(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeRental(
+  row: Rental & { rental_comments?: unknown }
+): Rental {
+  const comments_count = embedCount(row.rental_comments) || row.comments_count || 0;
+  const { rental_comments: _comments, ...rest } = row;
+  return {
+    ...(rest as Rental),
+    lat: toCoord(row.lat),
+    lng: toCoord(row.lng),
+    photo_urls: normalizePhotoUrls(row.photo_urls, MAX_RENTAL_PHOTOS),
+    monthly_rent:
+      typeof row.monthly_rent === "number" && Number.isFinite(row.monthly_rent)
+        ? row.monthly_rent
+        : null,
+    comments_count,
+  };
+}
+
+export async function getRentals(): Promise<Rental[]> {
+  const sb = getSupabaseOrError();
+  if (!sb.client) return [];
+  try {
+    const { data, error } = await sb.client
+      .from("rentals")
+      .select("*, rental_comments(count)")
+      .order("created_at", { ascending: false });
+    if (error) {
+      if (isMissingRentalsTable(error.message)) return [];
+      console.error("getRentals error:", error.message);
+      return [];
+    }
+    return ((data ?? []) as Rental[]).map(normalizeRental);
+  } catch (err) {
+    console.error("getRentals error:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+export async function createRental(formData: FormData): Promise<ActionResult<Rental>> {
+  const neighborhood = String(formData.get("neighborhood") ?? "").trim();
+  const address = String(formData.get("address") ?? "").trim();
+  const propertyType = String(formData.get("property_type") ?? "").trim();
+  const furnishedRaw = String(formData.get("furnished") ?? "").trim();
+  const contact = String(formData.get("contact") ?? "").trim();
+  const rentRaw = String(formData.get("monthly_rent") ?? "").trim();
+  const place = parseCityFields(formData);
+  if ("error" in place) return { success: false, error: place.error };
+  const { municipality, department } = place;
+  const latRaw = formData.get("lat");
+  const lngRaw = formData.get("lng");
+  const lat = latRaw ? Number(latRaw) : NaN;
+  const lng = lngRaw ? Number(lngRaw) : NaN;
+
+  if (!address) return { success: false, error: "Escribe la dirección o ubicación." };
+  if (!propertyType) return { success: false, error: "Indica el tipo de inmueble." };
+  if (contact.replace(/\D/g, "").length < 7) {
+    return { success: false, error: "Escribe un teléfono o WhatsApp válido." };
+  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { success: false, error: "Marca la vivienda en el mapa." };
+  }
+  if (!inColombia(lat, lng)) {
+    return { success: false, error: "La ubicación debe estar en Colombia." };
+  }
+
+  const monthlyRent = rentRaw ? parseMonthlyRent(rentRaw) : null;
+  if (rentRaw && monthlyRent === null) {
+    return { success: false, error: "El valor del arriendo no se entiende. Déjalo vacío si no hay precio." };
+  }
+
+  const allowed = await checkRateLimit("createRental", 8, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const photos = await uploadFormPhotos(sb.client, "rentals", formData, MAX_RENTAL_PHOTOS);
+  if (photos.error) return { success: false, error: photos.error };
+
+  const furnished = /^(si|sí|true|1|amoblada)$/i.test(furnishedRaw);
+
+  const { data, error } = await insertRow(sb.client, "rentals", {
+    municipality,
+    department,
+    neighborhood: neighborhood.slice(0, 120),
+    address: address.slice(0, 200),
+    property_type: propertyType.slice(0, 80),
+    furnished,
+    contact: contact.slice(0, 80),
+    monthly_rent: monthlyRent,
+    photo_urls: photos.urls,
+    lat,
+    lng,
+    status: "disponible",
+  });
+
+  if (error) {
+    return {
+      success: false,
+      error: isMissingRentalsTable(error.message)
+        ? "Falta crear la tabla de arriendos en Supabase (migración rentals)."
+        : classifyHomeDataError(error.message),
+    };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: normalizeRental(data as Rental) };
+}
+
+export type RentalImportRow = {
+  municipality: string;
+  department?: string;
+  neighborhood: string;
+  address: string;
+  property_type: string;
+  furnished: boolean;
+  contact: string;
+  monthly_rent: number | null;
+  submitted_at?: string | null;
+  lat: number | null;
+  lng: number | null;
+};
+
+export async function importRentals(
+  pin: string,
+  rows: RentalImportRow[]
+): Promise<ActionResult<{ created: number; skipped: number; withoutPin: number }>> {
+  if (!matchesAcopioSecret(pin)) {
+    return { success: false, error: "PIN incorrecto." };
+  }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { success: false, error: "No hay filas para cargar." };
+  }
+  if (rows.length > 80) {
+    return { success: false, error: "Carga máximo 80 viviendas por vez." };
+  }
+
+  const allowed = await checkRateLimit("importRentals", 3, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const payload = [];
+  let skipped = 0;
+  let withoutPin = 0;
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const address = String(row.address ?? "").trim();
+    const contact = String(row.contact ?? "").trim();
+    const municipality = String(row.municipality ?? "").trim();
+    if (!address || !contact || !isKnownCityName(municipality)) {
+      skipped += 1;
+      continue;
+    }
+    const key = `${foldDup(municipality)}|${foldDup(address)}|${contact.replace(/\D/g, "")}`;
+    if (seen.has(key)) {
+      skipped += 1;
+      continue;
+    }
+    seen.add(key);
+
+    const lat = row.lat == null ? null : Number(row.lat);
+    const lng = row.lng == null ? null : Number(row.lng);
+    const hasPin =
+      lat !== null &&
+      lng !== null &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      inColombia(lat, lng);
+    if (!hasPin) withoutPin += 1;
+
+    payload.push({
+      municipality,
+      department: String(row.department ?? DEFAULT_DEPARTMENT).trim() || DEFAULT_DEPARTMENT,
+      neighborhood: String(row.neighborhood ?? "").trim().slice(0, 120),
+      address: address.slice(0, 200),
+      property_type: String(row.property_type ?? "Otro").trim().slice(0, 80) || "Otro",
+      furnished: Boolean(row.furnished),
+      contact: contact.slice(0, 80),
+      monthly_rent:
+        typeof row.monthly_rent === "number" && row.monthly_rent > 0 ? Math.round(row.monthly_rent) : null,
+      photo_urls: [] as string[],
+      lat: hasPin ? lat : null,
+      lng: hasPin ? lng : null,
+      submitted_at: row.submitted_at || null,
+      status: "disponible",
+    });
+  }
+
+  if (payload.length === 0) {
+    return { success: false, error: "Ninguna fila era válida para guardar." };
+  }
+
+  const { error } = await sb.client.from("rentals").insert(payload);
+  if (error) {
+    return {
+      success: false,
+      error: isMissingRentalsTable(error.message)
+        ? "Falta crear la tabla de arriendos en Supabase (migración rentals)."
+        : classifyHomeDataError(error.message),
+    };
+  }
+
+  revalidatePath("/");
+  return {
+    success: true,
+    data: { created: payload.length, skipped, withoutPin },
+  };
+}
+
+function foldDup(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function hideRental(id: string): Promise<ActionResult<Rental>> {
+  return updateRentalStatus(id, "ocupada");
+}
+
+export async function updateRentalStatus(
+  id: string,
+  status: RentalStatus
+): Promise<ActionResult<Rental>> {
+  if (!UUID_RE.test(id)) return { success: false, error: "Vivienda inválida." };
+  if (status !== "disponible" && status !== "ocupada" && status !== "ocultada") {
+    return { success: false, error: "Estado inválido." };
+  }
+
+  const allowed = await checkRateLimit("updateRentalStatus", 20, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("rentals")
+    .update({ status })
+    .eq("id", id)
+    .select("*, rental_comments(count)")
+    .single();
+
+  if (error) {
+    if (isMissingRentalCommentsTable(error.message)) {
+      const retry = await sb.client.from("rentals").update({ status }).eq("id", id).select().single();
+      if (retry.error) {
+        return { success: false, error: classifyHomeDataError(retry.error.message) };
+      }
+      revalidatePath("/");
+      return { success: true, data: normalizeRental(retry.data as Rental) };
+    }
+    return { success: false, error: classifyHomeDataError(error.message) };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: normalizeRental(data as Rental) };
+}
+
+export async function getRentalComments(rentalId: string): Promise<Comment[]> {
+  if (!UUID_RE.test(rentalId)) return [];
+  const sb = getSupabaseOrError();
+  if (!sb.client) return [];
+  try {
+    const { data, error } = await sb.client
+      .from("rental_comments")
+      .select("*")
+      .eq("rental_id", rentalId)
+      .order("created_at", { ascending: true });
+    if (error) {
+      if (isMissingRentalCommentsTable(error.message)) return [];
+      console.error("getRentalComments error:", error.message);
+      return [];
+    }
+    return (data ?? []) as Comment[];
+  } catch (err) {
+    console.error("getRentalComments error:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+export async function addRentalComment(
+  rentalId: string,
+  author: string,
+  content: string
+): Promise<ActionResult<Comment>> {
+  const trimmedContent = content.trim().slice(0, 280);
+  const trimmedAuthor = author.trim() || "Anónimo";
+  if (!UUID_RE.test(rentalId)) return { success: false, error: "Vivienda inválida." };
+  if (!trimmedContent) return { success: false, error: "El comentario no puede estar vacío." };
+
+  const allowed = await checkRateLimit("addRentalComment", 10, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Estás comentando muy rápido. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("rental_comments")
+    .insert({
+      rental_id: rentalId,
+      author_name: trimmedAuthor,
+      content: trimmedContent,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    return {
+      success: false,
+      error: isMissingRentalCommentsTable(error.message)
+        ? "Falta crear la tabla de notas de arriendos en Supabase (migración rental_comments)."
+        : error.message,
+    };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: data as Comment };
 }

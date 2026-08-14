@@ -1,20 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Package } from "lucide-react";
+import { ArrowLeft, Home, Package } from "lucide-react";
 import { CreatePointForm } from "./CollectionPoints";
-import { type CollectionPoint } from "@/lib/types";
+import RentalAdminPanel from "./RentalAdminPanel";
+import { type CollectionPoint, type Rental } from "@/lib/types";
 
 interface AcopioAdminClientProps {
   accessKey: string;
   initialPoints: CollectionPoint[];
+  initialRentals?: Rental[];
 }
 
 export default function AcopioAdminClient({
   accessKey,
   initialPoints,
+  initialRentals = [],
 }: AcopioAdminClientProps) {
   const [points, setPoints] = useState(initialPoints);
+  const [tab, setTab] = useState<"acopio" | "arriendos">("acopio");
 
   return (
     <div className="min-h-dvh bg-[#0e0e10] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -27,42 +31,86 @@ export default function AcopioAdminClient({
           Volver al mapa
         </a>
 
-        <div className="glass rounded-[24px] p-3">
-          <div className="mb-3 flex items-center gap-2">
-            <Package className="h-4 w-4 text-ink-soft" aria-hidden="true" />
-            <div>
-              <p className="text-[12px] font-medium text-ink-soft">Ruta interna</p>
-              <h1 className="text-[18px] leading-tight font-semibold text-ink">
-                Crear punto de acopio
-              </h1>
+        <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-full bg-white/10 p-1">
+          <button
+            type="button"
+            onClick={() => setTab("acopio")}
+            className={
+              tab === "acopio"
+                ? "flex h-10 items-center justify-center gap-1.5 rounded-full bg-white text-[13px] font-semibold text-ink"
+                : "flex h-10 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium text-white/70"
+            }
+          >
+            <Package className="h-4 w-4" />
+            Acopio
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("arriendos")}
+            className={
+              tab === "arriendos"
+                ? "flex h-10 items-center justify-center gap-1.5 rounded-full bg-white text-[13px] font-semibold text-ink"
+                : "flex h-10 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium text-white/70"
+            }
+          >
+            <Home className="h-4 w-4" />
+            Arriendos
+          </button>
+        </div>
+
+        {tab === "acopio" ? (
+          <>
+            <div className="glass rounded-[24px] p-3">
+              <div className="mb-3 flex items-center gap-2">
+                <Package className="h-4 w-4 text-ink-soft" aria-hidden="true" />
+                <div>
+                  <p className="text-[12px] font-medium text-ink-soft">Ruta interna</p>
+                  <h1 className="text-[18px] leading-tight font-semibold text-ink">
+                    Crear punto de acopio
+                  </h1>
+                </div>
+              </div>
+
+              <CreatePointForm
+                accessKey={accessKey}
+                onCreated={(point) => setPoints((prev) => [point, ...prev])}
+              />
             </div>
+
+            <p className="mt-4 mb-2 px-1 text-[12px] font-medium text-white/55">
+              {points.length === 0
+                ? "Todavía no hay puntos publicados."
+                : `${points.length} punto${points.length === 1 ? "" : "s"} en el mapa`}
+            </p>
+
+            <div className="space-y-2">
+              {points.map((point) => (
+                <article key={point.id} className="glass rounded-[22px] px-3 py-2.5">
+                  <p className="text-[15px] font-semibold text-ink">{point.name}</p>
+                  <p className="mt-0.5 text-[13px] text-ink-soft">{point.address}</p>
+                  {point.lat !== null && point.lng !== null ? (
+                    <p className="mt-1 font-mono text-[11px] text-ink-soft">
+                      {point.lat}, {point.lng}
+                    </p>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="glass rounded-[24px] p-3">
+            <div className="mb-3 flex items-center gap-2">
+              <Home className="h-4 w-4 text-ink-soft" aria-hidden="true" />
+              <div>
+                <p className="text-[12px] font-medium text-ink-soft">Carga masiva</p>
+                <h1 className="text-[18px] leading-tight font-semibold text-ink">
+                  Publicar arriendos
+                </h1>
+              </div>
+            </div>
+            <RentalAdminPanel accessKey={accessKey} initialRentals={initialRentals} />
           </div>
-
-          <CreatePointForm
-            accessKey={accessKey}
-            onCreated={(point) => setPoints((prev) => [point, ...prev])}
-          />
-        </div>
-
-        <p className="mt-4 mb-2 px-1 text-[12px] font-medium text-white/55">
-          {points.length === 0
-            ? "Todavía no hay puntos publicados."
-            : `${points.length} punto${points.length === 1 ? "" : "s"} en el mapa`}
-        </p>
-
-        <div className="space-y-2">
-          {points.map((point) => (
-            <article key={point.id} className="glass rounded-[22px] px-3 py-2.5">
-              <p className="text-[15px] font-semibold text-ink">{point.name}</p>
-              <p className="mt-0.5 text-[13px] text-ink-soft">{point.address}</p>
-              {point.lat !== null && point.lng !== null ? (
-                <p className="mt-1 font-mono text-[11px] text-ink-soft">
-                  {point.lat}, {point.lng}
-                </p>
-              ) : null}
-            </article>
-          ))}
-        </div>
+        )}
       </div>
     </div>
   );

@@ -19,7 +19,8 @@ export type ReportStatus =
   | "informacion_falsa"
   | "duplicado";
 
-export type Municipality = "Pereira" | "Dosquebradas";
+export type Municipality = string;
+export type MetroCity = "Pereira" | "Dosquebradas";
 
 export interface Report {
   id: string;
@@ -29,6 +30,7 @@ export interface Report {
   urgent_level: UrgentLevel;
   status: ReportStatus;
   municipality: Municipality;
+  department?: string;
   location_name: string;
   lat: number | null;
   lng: number | null;
@@ -41,7 +43,8 @@ export interface Report {
 
 export interface Comment {
   id: string;
-  report_id: string;
+  report_id?: string;
+  rental_id?: string;
   author_name: string;
   content: string;
   created_at: string;
@@ -52,6 +55,7 @@ export interface CollectionPoint {
   name: string;
   address: string;
   municipality: Municipality;
+  department?: string;
   supplies_needed: string[];
   open_hours: string;
   contact: string;
@@ -66,6 +70,7 @@ export interface PeopleStatus {
   full_name: string;
   document_id: string | null;
   municipality: Municipality;
+  department?: string;
   neighborhood: string;
   lat: number | null;
   lng: number | null;
@@ -81,9 +86,9 @@ export const PEREIRA_CENTER: [number, number] = [4.8143, -75.6946];
 /** Centro geográfico aproximado de Dosquebradas, Risaralda. */
 export const DOSQUEBRADAS_CENTER: [number, number] = [4.8389, -75.6708];
 
-export const MUNICIPALITIES: Municipality[] = ["Pereira", "Dosquebradas"];
+export const MUNICIPALITIES: MetroCity[] = ["Pereira", "Dosquebradas"];
 
-export const MUNICIPALITY_CENTERS: Record<Municipality, [number, number]> = {
+export const MUNICIPALITY_CENTERS: Record<MetroCity, [number, number]> = {
   Pereira: PEREIRA_CENTER,
   Dosquebradas: DOSQUEBRADAS_CENTER,
 };
@@ -139,8 +144,10 @@ export const CATEGORY_COLORS: Record<ReportCategory, string> = {
 
 export const ACOPIO_COLOR = "#c4a35a";
 export const OFFER_COLOR = "#2f6b4f";
+export const RENTAL_COLOR = "#1a6b78";
+export const RENTAL_EMOJI = "🏠";
 
-export const MUNICIPALITY_COLORS: Record<Municipality, string> = {
+export const MUNICIPALITY_COLORS: Record<MetroCity, string> = {
   Pereira: "#a61b1b",
   Dosquebradas: "#3b6ea5",
 };
@@ -163,7 +170,7 @@ export const QUICK_CATEGORY_FILTERS: {
   label: string;
   emoji: string;
 }[] = [
-  { key: "todos", label: "Todos", emoji: "🔎" },
+  { key: "todos", label: "Ayudas", emoji: "🛟" },
   { key: "alimentos", label: "Comida", emoji: "🍲" },
   { key: "medicinas", label: "Salud", emoji: "🩺" },
   { key: "herramientas", label: "Herramientas", emoji: "🛠️" },
@@ -276,6 +283,7 @@ export interface ClosedRoad {
   reason: ClosedRoadReason;
   note: string;
   municipality: Municipality;
+  department?: string;
   path: RoadPoint[];
   status: ClosedRoadStatus;
   created_at: string;
@@ -318,6 +326,7 @@ export interface HelpOffer {
   description: string;
   phone: string;
   municipality: Municipality;
+  department?: string;
   status: HelpOfferStatus;
   created_at: string;
 }
@@ -363,6 +372,42 @@ export const HELP_SKILL_COLORS: Record<HelpSkill, string> = {
 
 export const HELP_SKILLS = Object.keys(HELP_SKILL_LABELS) as HelpSkill[];
 
+export type RentalStatus = "disponible" | "ocupada" | "ocultada";
+
+export interface Rental {
+  id: string;
+  municipality: Municipality;
+  department?: string;
+  neighborhood: string;
+  address: string;
+  property_type: string;
+  furnished: boolean;
+  contact: string;
+  monthly_rent: number | null;
+  photo_urls: string[];
+  lat: number | null;
+  lng: number | null;
+  submitted_at: string | null;
+  status: RentalStatus;
+  comments_count: number;
+  created_at: string;
+}
+
+export const RENTAL_STATUS_LABELS: Record<RentalStatus, string> = {
+  disponible: "Disponible",
+  ocupada: "No disponible",
+  ocultada: "Oculta",
+};
+
+export const RENTAL_PROPERTY_TYPES = [
+  "Apartaestudio",
+  "Habitación",
+  "Apartamento",
+  "Casa",
+  "Local",
+  "Otro",
+] as const;
+
 /** Enmascara un documento de identidad dejando solo los últimos 4 dígitos
  * visibles (privacidad en resultados de búsqueda pública). */
 export function maskDocumentId(id: string | null): string | null {
@@ -379,5 +424,6 @@ export interface HomeData {
   points: CollectionPoint[];
   roads: ClosedRoad[];
   offers: HelpOffer[];
+  rentals: Rental[];
   error: string | null;
 }

@@ -19,6 +19,7 @@ interface HelpOffersProps {
   onSeeNeeds: () => void;
   onHidden: (offer: HelpOffer) => void;
   showCtas?: boolean;
+  cityName?: string;
 }
 
 export default function HelpOffers({
@@ -27,6 +28,7 @@ export default function HelpOffers({
   onSeeNeeds,
   onHidden,
   showCtas = true,
+  cityName,
 }: HelpOffersProps) {
   const [skill, setSkill] = useState<HelpSkill | "todos">("todos");
   const [hidingId, setHidingId] = useState<string | null>(null);
@@ -112,7 +114,9 @@ export default function HelpOffers({
         <div className="mt-2 rounded-[22px] bg-black/5 px-4 py-8 text-center dark:bg-white/5">
           <p className="text-[15px] font-medium text-ink-soft">
             {skill === "todos"
-              ? "Aún no hay ofertas. Si puedes ayudar, publícalo."
+              ? cityName
+                ? `Aún no hay ofertas en ${cityName}. Si puedes ayudar, publícalo.`
+                : "Aún no hay ofertas. Si puedes ayudar, publícalo."
               : `Aún no hay nadie de ${HELP_SKILL_LABELS[skill].toLowerCase()}. Si puedes, publícalo.`}
           </p>
         </div>

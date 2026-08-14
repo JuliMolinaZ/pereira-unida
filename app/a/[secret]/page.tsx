@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getCollectionPoints, isAcopioSecretValid } from "@/app/actions";
+import { getCollectionPoints, getRentals, isAcopioSecretValid } from "@/app/actions";
 import AcopioAdminClient from "@/components/AcopioAdminClient";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,8 @@ export default async function AcopioSecretPage({
     notFound();
   }
 
-  const points = await getCollectionPoints();
-  return <AcopioAdminClient accessKey={secret} initialPoints={points} />;
+  const [points, rentals] = await Promise.all([getCollectionPoints(), getRentals()]);
+  return (
+    <AcopioAdminClient accessKey={secret} initialPoints={points} initialRentals={rentals} />
+  );
 }
