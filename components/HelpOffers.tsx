@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { HandHeart, Loader2, MessageCircle, Phone } from "lucide-react";
 import { hideHelpOffer } from "@/app/actions";
 import { cn, formatTimeAgo, readMyOfferIds, shareToWhatsAppOffer } from "@/lib/utils";
+import ExpandableText from "./ExpandableText";
 import {
   HELP_SKILL_COLORS,
   HELP_SKILL_EMOJI,
@@ -209,9 +210,10 @@ function HelpOfferCard({
             {offer.full_name}
           </h3>
           {offer.description ? (
-            <p className="mt-0.5 line-clamp-3 text-[13px] leading-snug text-ink-soft">
-              {offer.description}
-            </p>
+            <ExpandableText
+              text={offer.description}
+              className="mt-0.5 text-[13px] leading-snug whitespace-pre-wrap break-words text-ink-soft"
+            />
           ) : null}
           <p className="mt-1 text-[11px] text-ink-soft">{formatTimeAgo(offer.created_at)}</p>
         </div>

@@ -169,8 +169,8 @@ export default function HelpOfferModal({
           <textarea
             id="offer-description"
             name="description"
-            maxLength={280}
-            rows={3}
+            maxLength={800}
+            rows={4}
             placeholder={SKILL_HINT[skill]}
             className={cn(FIELD_CLASS, "resize-none")}
           />

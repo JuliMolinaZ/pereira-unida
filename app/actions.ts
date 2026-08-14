@@ -1358,7 +1358,7 @@ export async function createHelpOffer(
   const { data, error } = await insertRow(sb.client, "help_offers", {
     full_name: fullName.slice(0, 80),
     skill,
-    description: description.slice(0, 280),
+    description: description.slice(0, 800),
     phone,
     municipality,
     department,

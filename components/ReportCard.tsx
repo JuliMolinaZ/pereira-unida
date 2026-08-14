@@ -17,6 +17,7 @@ import {
 } from "@/lib/types";
 import CommentsSection from "./CommentsSection";
 import PhotoStrip from "./PhotoStrip";
+import ExpandableText from "./ExpandableText";
 
 export default function ReportCard({
   report,
@@ -166,9 +167,10 @@ export default function ReportCard({
         {report.title}
       </h3>
       {report.description ? (
-        <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words text-ink-soft">
-          {report.description}
-        </p>
+        <ExpandableText
+          text={report.description}
+          className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words text-ink-soft"
+        />
       ) : null}
 
       <PhotoStrip urls={report.photo_urls} alt={report.title} />
