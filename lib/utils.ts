@@ -1,7 +1,7 @@
 import { HELP_SKILL_LABELS, type HelpOffer, type Rental, type Report } from "./types";
 
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.vercel.app";
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.com";
 
 /**
  * Normaliza un teléfono colombiano a dígitos internacionales (57…) para

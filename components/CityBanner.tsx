@@ -1,7 +1,7 @@
 "use client";
 
 import { MapPin } from "lucide-react";
-import type { AppCity } from "@/lib/regions";
+import type { AppCity } from "@/lib/regions-core";
 
 type CityBannerAction = "pedir" | "ofrecer" | "familia" | "via" | "arriendo";
 

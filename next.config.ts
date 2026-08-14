@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   experimental: {
-    optimizePackageImports: ["lucide-react"],
+    optimizePackageImports: ["lucide-react", "maplibre-gl"],
     // Fotos de celular superan el 1 MB por defecto de Server Actions.
     serverActions: {
       bodySizeLimit: "16mb",

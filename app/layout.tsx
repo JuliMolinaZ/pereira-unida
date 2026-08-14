@@ -8,6 +8,7 @@ const archivo = Archivo({
   subsets: ["latin"],
   display: "swap",
   preload: true,
+  weight: ["400", "500", "600", "700"],
 });
 
 const fraunces = Fraunces({
@@ -18,7 +19,7 @@ const fraunces = Fraunces({
   weight: "600",
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereira-unida.vercel.app";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.com";
 const SITE_DESCRIPTION =
   "Coordina y solicita ayuda ciudadana en tiempo real en Pereira y Dosquebradas tras una emergencia: alimentos, herramientas, medicinas, voluntariado, red familiar y puntos de acopio.";
 

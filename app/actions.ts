@@ -13,6 +13,7 @@ import {
 } from "@/lib/supabase/config";
 import {
   HELP_SKILLS,
+  isClosedStatus,
   type ClosedRoad,
   type ClosedRoadReason,
   type ClosedRoadStatus,
@@ -448,6 +449,7 @@ type ReportListFilters = {
   municipality?: Municipality | "todos";
   department?: string;
   search?: string;
+  limit?: number;
 };
 
 async function loadReports(
@@ -459,7 +461,7 @@ async function loadReports(
       .from("reports")
       .select(select)
       .order("created_at", { ascending: false })
-      .limit(1000);
+      .limit(filters?.limit ?? 400);
     if (filters?.category && filters.category !== "todos") {
       query = query.eq("category", filters.category);
     }
@@ -759,6 +761,7 @@ export async function getReports(
       municipality: municipalityFilter,
       department: departmentFilter,
       search: searchQuery,
+      limit: 500,
     });
     if (pack.error) {
       console.error("getReports error:", pack.error);
@@ -895,6 +898,7 @@ export async function getHomeData(
       loadReports(sb.client, {
         department: zone.department,
         municipality: zone.municipality,
+        limit: zone.department ? 180 : 400,
       }),
       loadSide("collection_points", "name", true),
       loadSide("closed_roads", "created_at", false),
@@ -933,6 +937,65 @@ export async function getHomeData(
     console.error("getHomeData error:", message);
     return { ...EMPTY_HOME, error: classifyHomeDataError(message) };
   }
+}
+
+
+export type NationalPlaceCount = {
+  department: string;
+  municipality: string;
+  active: number;
+  critical: number;
+};
+
+export type NationalOverview = {
+  active: number;
+  critical: number;
+  places: NationalPlaceCount[];
+};
+
+/** Conteos de solicitudes activas en todo el país, sin filtrar por ciudad. */
+export async function getNationalOverview(): Promise<NationalOverview> {
+  const empty: NationalOverview = { active: 0, critical: 0, places: [] };
+  const sb = getSupabaseOrError();
+  if (!sb.client) return empty;
+
+  const run = (cols: string) => sb.client!.from("reports").select(cols).limit(1000);
+  let { data, error } = await run("status, urgent_level, municipality, department");
+  if (error && isMissingDepartmentColumn(error.message)) {
+    ({ data, error } = await run("status, urgent_level, municipality"));
+  }
+  if (error || !data) return empty;
+
+  const placeMap = new Map<string, NationalPlaceCount>();
+  let active = 0;
+  let critical = 0;
+  for (const row of data as {
+    status?: string;
+    urgent_level?: string;
+    municipality?: string;
+    department?: string;
+  }[]) {
+    const status = String(row.status ?? "") as ReportStatus;
+    if (isClosedStatus(status)) continue;
+    active += 1;
+    const isCritical = row.urgent_level === "critico";
+    if (isCritical) critical += 1;
+    const municipality = String(row.municipality ?? "").trim() || "Sin ciudad";
+    const department = String(row.department ?? DEFAULT_DEPARTMENT).trim() || DEFAULT_DEPARTMENT;
+    const key = `${department}|${municipality}`;
+    const prev = placeMap.get(key) ?? { department, municipality, active: 0, critical: 0 };
+    prev.active += 1;
+    if (isCritical) prev.critical += 1;
+    placeMap.set(key, prev);
+  }
+
+  return {
+    active,
+    critical,
+    places: [...placeMap.values()].sort(
+      (a, b) => b.active - a.active || a.municipality.localeCompare(b.municipality, "es")
+    ),
+  };
 }
 
 /**

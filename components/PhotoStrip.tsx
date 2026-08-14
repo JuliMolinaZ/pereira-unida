@@ -25,6 +25,10 @@ export default function PhotoStrip({ urls, alt, size = "sm" }: PhotoStripProps) 
           <img
             src={url}
             alt={`${alt} ${index + 1}`}
+            width={size === "md" ? 80 : 56}
+            height={size === "md" ? 80 : 56}
+            loading="lazy"
+            decoding="async"
             className={`${box} rounded-xl object-cover`}
           />
         </a>

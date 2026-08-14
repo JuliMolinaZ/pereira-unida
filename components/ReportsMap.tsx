@@ -32,6 +32,7 @@ import {
   type MapPlace,
 } from "@/lib/places";
 import { cn, googleMapsUrl } from "@/lib/utils";
+import type { GeoBBox } from "@/lib/regions-core";
 
 /** Estilo vectorial libre (OpenFreeMap / OSM). Sin API key. */
 const VECTOR_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -189,6 +190,8 @@ interface ReportsMapProps {
   onReopenRoad?: (id: string) => void;
   centerLat?: number;
   centerLng?: number;
+  zoom?: number;
+  fitBbox?: GeoBBox | null;
   cityName?: string;
 }
 
@@ -210,6 +213,8 @@ export default function ReportsMap({
   onReopenRoad,
   centerLat = MAP_DEFAULT_CENTER.lat,
   centerLng = MAP_DEFAULT_CENTER.lng,
+  zoom = MAP_DEFAULT_ZOOM,
+  fitBbox = null,
   cityName = "Pereira",
 }: ReportsMapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -361,20 +366,36 @@ export default function ReportsMap({
     };
   }, []);
 
-  useEffect(() => {
-    mapRef.current?.flyTo({
+  function applyCityView(duration: number) {
+    const map = mapRef.current;
+    if (!map) return;
+    if (fitBbox) {
+      map.fitBounds(
+        [
+          [fitBbox.west, fitBbox.south],
+          [fitBbox.east, fitBbox.north],
+        ],
+        {
+          padding: { top: 72, bottom: 180, left: 28, right: 28 },
+          maxZoom: zoom,
+          duration,
+        }
+      );
+      return;
+    }
+    map.flyTo({
       center: [centerLng, centerLat],
-      zoom: MAP_DEFAULT_ZOOM,
-      duration: 800,
+      zoom,
+      duration,
     });
-  }, [centerLat, centerLng]);
+  }
+
+  useEffect(() => {
+    applyCityView(800);
+  }, [centerLat, centerLng, zoom, fitBbox]);
 
   function recenter() {
-    mapRef.current?.flyTo({
-      center: [centerLng, centerLat],
-      zoom: MAP_DEFAULT_ZOOM,
-      duration: 700,
-    });
+    applyCityView(700);
   }
 
   return (
@@ -387,7 +408,7 @@ export default function ReportsMap({
         initialViewState={{
           latitude: centerLat,
           longitude: centerLng,
-          zoom: MAP_DEFAULT_ZOOM,
+          zoom,
         }}
         style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
         attributionControl={{ compact: true }}

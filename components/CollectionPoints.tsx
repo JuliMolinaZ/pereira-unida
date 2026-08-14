@@ -16,7 +16,7 @@ import { createCollectionPoint, type ActionResult } from "@/app/actions";
 import { reverseGeocode } from "@/lib/geocode";
 import { cn, googleMapsUrl } from "@/lib/utils";
 import { MUNICIPALITIES, type CollectionPoint, type Municipality } from "@/lib/types";
-import { isRisaraldaMetro, type AppCity } from "@/lib/regions";
+import { isRisaraldaMetro, type AppCity } from "@/lib/regions-core";
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,

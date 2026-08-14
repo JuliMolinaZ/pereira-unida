@@ -12,7 +12,8 @@ import {
   type PointerEvent,
 } from "react";
 import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
-import { getHomeData, getReports, reopenClosedRoad } from "@/app/actions";
+import { getHomeData, getNationalOverview, getReports, reopenClosedRoad } from "@/app/actions";
+import type { NationalOverview } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { cn, googleMapsUrl, isReportFromLastHours, rememberMyOfferId, rememberMyRentalId } from "@/lib/utils";
@@ -21,6 +22,8 @@ import {
   CLOSED_ROAD_REASON_LABELS,
   HELP_SKILL_LABELS,
   isClosedStatus,
+  MAP_COUNTRY_ZOOM,
+  MAP_DEFAULT_ZOOM,
   type ClosedRoad,
   type CollectionPoint,
   type HelpOffer,
@@ -45,23 +48,24 @@ import FilterBar, {
   type TimeWindowFilter,
 } from "./FilterBar";
 import DenseReportList from "./DenseReportList";
-import ReportCard from "./ReportCard";
 import ReportCardSkeleton from "./ReportCardSkeleton";
-import RegionPicker from "./RegionPicker";
+import { isInAppBrowser } from "@/lib/device";
 import {
   cityById,
   DEFAULT_CITY_ID,
   DEFAULT_DEPARTMENT,
   isDefaultZone,
+  isNationwide,
   isRisaraldaMetro,
+  NATIONAL_CITY,
   placesSearchUrl,
   readCityChosen,
-  readSavedCityId,
+  readSavedCity,
+  saveCity,
   saveCityChosen,
-  saveCityId,
   zoneQueryFor,
   type AppCity,
-} from "@/lib/regions";
+} from "@/lib/regions-core";
 
 const ReportsMap = dynamic(() => import("./ReportsMap"), {
   ssr: false,
@@ -76,6 +80,8 @@ const HelpOffers = dynamic(() => import("./HelpOffers"));
 const Rentals = dynamic(() => import("./Rentals"));
 const RentalFormModal = dynamic(() => import("./RentalFormModal"));
 const RentalCard = dynamic(() => import("./RentalCard"));
+const ReportCard = dynamic(() => import("./ReportCard"));
+const RegionPicker = dynamic(() => import("./RegionPicker"));
 
 function MapBootScreen() {
   return (
@@ -182,6 +188,8 @@ export default function HomeClient({
   const [reports, setReports] = useState<Report[]>(initialReports);
   const [points, setPoints] = useState<CollectionPoint[]>(initialPoints);
   const [city, setCity] = useState<AppCity>(() => cityById(DEFAULT_CITY_ID));
+  const [nationalOverview, setNationalOverview] = useState<NationalOverview | null>(null);
+  const [departmentFocus, setDepartmentFocus] = useState<string>("todos");
   const [zoneReady, setZoneReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [needsCity, setNeedsCity] = useState(false);
@@ -223,9 +231,14 @@ export default function HomeClient({
   const isOffersView = category === "ofrezco";
   const isRentalsView = category === "arriendos";
   const showMetroChips = isRisaraldaMetro(city);
+  const nationwide = isNationwide(city);
+  const showPlaceOnCards = showMetroChips || nationwide;
+  const needsPlaceToPost = needsCity || nationwide;
 
   function belongsToActiveZone(item: { department?: string; municipality?: string }) {
+    if (isNationwide(cityRef.current)) return true;
     const zone = zoneQueryFor(cityRef.current);
+    if (!zone.department) return true;
     const dept = item.department || DEFAULT_DEPARTMENT;
     if (dept !== zone.department) return false;
     if (zone.municipality && item.municipality !== zone.municipality) return false;
@@ -254,12 +267,17 @@ export default function HomeClient({
   }, [appliedInitialReportId]);
 
   useEffect(() => {
-    const saved = cityById(readSavedCityId());
+    const saved = readSavedCity();
     const chosen = readCityChosen();
     setCity(saved);
     setNeedsCity(!chosen);
-    if (!chosen) setPickerOpen(true);
     setZoneReady(true);
+    if (!chosen) {
+      const openPicker = () => setPickerOpen(true);
+      const delay = isInAppBrowser() ? 1400 : 500;
+      const timer = window.setTimeout(openPicker, delay);
+      return () => window.clearTimeout(timer);
+    }
   }, []);
 
   useEffect(() => {
@@ -268,9 +286,9 @@ export default function HomeClient({
 
   useEffect(() => {
     if (!zoneReady) return;
-    saveCityId(city.id);
+    saveCity(city);
     const zone = zoneQueryFor(city);
-    const key = `${zone.department}|${zone.municipality ?? ""}`;
+    const key = `${zone.department ?? "*"}|${zone.municipality ?? ""}`;
     if (lastFetchedZone.current === key) return;
     if (lastFetchedZone.current === null && isDefaultZone(city)) {
       lastFetchedZone.current = key;
@@ -279,15 +297,28 @@ export default function HomeClient({
     lastFetchedZone.current = key;
     skipNextRefetch.current = true;
     startTransition(async () => {
-      const data = await getHomeData(zone);
+      const [data, overview] = await Promise.all([getHomeData(zone), getNationalOverview()]);
       setReports(data.reports);
       setPoints(data.points);
       setRoads(data.roads ?? []);
       setOffers(data.offers ?? []);
       setRentals(data.rentals ?? []);
+      setNationalOverview(overview);
       setMunicipality("todos");
+      setDepartmentFocus("todos");
     });
   }, [city, zoneReady]);
+
+  useEffect(() => {
+    if (!zoneReady) return;
+    let cancelled = false;
+    getNationalOverview().then((overview) => {
+      if (!cancelled) setNationalOverview(overview);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneReady]);
 
   useEffect(() => {
     if (!isRentalsView || !zoneReady || rentals.length > 0) return;
@@ -337,19 +368,20 @@ export default function HomeClient({
         !!currentSelectedId &&
         initialReports.some((r) => r.id === currentSelectedId);
       setReports(lostSelectedReport ? initialReports : data);
+      const overview = await getNationalOverview();
+      setNationalOverview(overview);
     });
   }, [initialReports]);
 
   useEffect(() => {
     let cancelled = false;
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (!cancelled) setMapReady(true);
-      });
-    });
+    const startMap = () => {
+      if (!cancelled) setMapReady(true);
+    };
+    const timeoutId = window.setTimeout(startMap, isInAppBrowser() ? 2200 : 450);
     return () => {
       cancelled = true;
-      cancelAnimationFrame(id);
+      window.clearTimeout(timeoutId);
     };
   }, []);
 
@@ -523,7 +555,7 @@ export default function HomeClient({
           }
         )
         .subscribe();
-    }, 1200);
+    }, isInAppBrowser() ? 3200 : 1600);
 
     return () => {
       cancelled = true;
@@ -555,6 +587,9 @@ export default function HomeClient({
         base = base.filter((r) => isReportFromLastHours(r, 6));
       }
     }
+    if (nationwide && departmentFocus !== "todos") {
+      base = base.filter((r) => (r.department || DEFAULT_DEPARTMENT) === departmentFocus);
+    }
     if (isSearching) {
       base = base.filter((r) =>
         matchesHaystack(
@@ -581,6 +616,8 @@ export default function HomeClient({
     category,
     isSearching,
     debouncedSearchQuery,
+    nationwide,
+    departmentFocus,
   ]);
 
   const visiblePoints = useMemo(() => {
@@ -698,12 +735,13 @@ export default function HomeClient({
 
   function handleCityPicked(next: AppCity) {
     setCity(next);
-    saveCityId(next.id);
+    saveCity(next);
     saveCityChosen();
     setNeedsCity(false);
     setPickerOpen(false);
     const action = pendingAction;
     setPendingAction(null);
+    if (isNationwide(next)) return;
     if (action === "report") setReportModalOpen(true);
     if (action === "offer") {
       setPriorityMode(false);
@@ -763,6 +801,16 @@ export default function HomeClient({
     return { total: activos.length, critico, cerrados, all: reports.length, falsa };
   }, [reports]);
 
+  const departmentCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const report of reports) {
+      if (isClosedStatus(report.status)) continue;
+      const dept = (report.department || DEFAULT_DEPARTMENT).trim();
+      map.set(dept, (map.get(dept) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"));
+  }, [reports]);
+
   const selectedReport = useMemo(
     () => reports.find((r) => r.id === selectedReportId) ?? null,
     [reports, selectedReportId]
@@ -801,6 +849,8 @@ export default function HomeClient({
             selectedRentalId={selectedRentalId}
             centerLat={city.center[0]}
             centerLng={city.center[1]}
+            zoom={nationwide ? MAP_COUNTRY_ZOOM : MAP_DEFAULT_ZOOM}
+            fitBbox={nationwide ? city.bbox : null}
             cityName={city.name}
             onSelectReport={(id) => {
               setSelectedPlaceId(null);
@@ -824,6 +874,9 @@ export default function HomeClient({
           onSearchQueryChange={setSearchQuery}
           cityName={city.name}
           onCityClick={() => openCityPicker()}
+          nationwide={nationwide}
+          nationalActive={nationalOverview?.active ?? null}
+          onSeeCountry={() => handleCityPicked(NATIONAL_CITY)}
         />
 
         {dataError && (
@@ -865,16 +918,16 @@ export default function HomeClient({
         <ActionCards
           onReportClick={() => {
             leaveRentalsIfNeeded();
-            if (needsCity) openCityPicker("report");
+            if (needsPlaceToPost) openCityPicker("report");
             else setReportModalOpen(true);
           }}
-          onHelpClick={() => (needsCity ? openCityPicker("offer") : handleWantsToOffer())}
+          onHelpClick={() => (needsPlaceToPost ? openCityPicker("offer") : handleWantsToOffer())}
           onFamilyClick={() => {
             leaveRentalsIfNeeded();
-            if (needsCity) openCityPicker("family");
+            if (needsPlaceToPost) openCityPicker("family");
             else setFamilyModalOpen(true);
           }}
-          onRentalsClick={() => (needsCity ? openCityPicker("rental") : handleWantsToRent())}
+          onRentalsClick={() => (needsPlaceToPost ? openCityPicker("rental") : handleWantsToRent())}
           helpActive={isOffersView}
           rentalsActive={isRentalsView}
         />
@@ -981,7 +1034,7 @@ export default function HomeClient({
                 rentals={visibleRentals}
                 cityName={city.name}
                 selectedId={selectedRentalId}
-                showMunicipality={showMetroChips}
+                showMunicipality={showPlaceOnCards}
                 onPublish={() => setRentalModalOpen(true)}
                 onSeeHelp={handleWantsToHelp}
                 onSelect={handleSelectRental}
@@ -1017,8 +1070,37 @@ export default function HomeClient({
                         </button>
                       ))}
                     </div>
+                    {nationwide && departmentCounts.length > 0 ? (
+                      <div className="no-scrollbar mb-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setDepartmentFocus("todos")}
+                          className={cn(
+                            "shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold",
+                            departmentFocus === "todos" ? "bg-ink text-paper" : "bg-black/5 text-ink-soft dark:bg-white/10"
+                          )}
+                        >
+                          Todo el país {stats.total}
+                        </button>
+                        {departmentCounts.map(([dept, count]) => (
+                          <button
+                            key={dept}
+                            type="button"
+                            onClick={() => setDepartmentFocus(departmentFocus === dept ? "todos" : dept)}
+                            className={cn(
+                              "shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold",
+                              departmentFocus === dept ? "bg-ink text-paper" : "bg-black/5 text-ink-soft dark:bg-white/10"
+                            )}
+                          >
+                            {dept} {count}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <p className="mb-1.5 px-1 text-[11px] text-ink-soft">
-                      Toca una fila para notas o marcar info falsa
+                      {nationwide
+                        ? "Solicitudes de todo Colombia. Toca un departamento para filtrar."
+                        : "Toca una fila para notas o marcar info falsa"}
                       {stats.falsa > 0 ? ` · ${stats.falsa} falsos` : ""}
                     </p>
                   </>
@@ -1167,7 +1249,7 @@ export default function HomeClient({
                       cityName={city.name}
                       showCtas={false}
                       selectedId={selectedRentalId}
-                      showMunicipality={showMetroChips}
+                      showMunicipality={showPlaceOnCards}
                       onPublish={() => setRentalModalOpen(true)}
                       onSelect={handleSelectRental}
                       onStatusUpdated={handleRentalUpdated}
@@ -1216,7 +1298,7 @@ export default function HomeClient({
                       scrollRef={listScrollRef}
                       onSelect={(id) => handleSelectReport(id)}
                       onStatusUpdated={handleStatusUpdated}
-                      showMunicipality={showMetroChips}
+                      showMunicipality={showPlaceOnCards}
                     />
                   </div>
                 )}
@@ -1251,7 +1333,7 @@ export default function HomeClient({
                 selected
                 anchor={false}
                 onStatusUpdated={handleStatusUpdated}
-                showMunicipality={showMetroChips}
+                showMunicipality={showPlaceOnCards}
               />
             </div>
           </div>
@@ -1282,7 +1364,7 @@ export default function HomeClient({
                 <RentalCard
                   rental={selectedRental}
                   selected
-                  showMunicipality={showMetroChips}
+                  showMunicipality={showPlaceOnCards}
                   onStatusUpdated={handleRentalUpdated}
                 />
               </div>
@@ -1291,62 +1373,74 @@ export default function HomeClient({
         </div>
       )}
 
-      <RequestHelpModal
-        open={reportModalOpen}
-        onClose={() => setReportModalOpen(false)}
-        onCreated={handleReportCreated}
-        city={city}
-        onChangeCity={() => openCityPicker()}
-      />
-      <FamilyStatusModal
-        open={familyModalOpen}
-        onClose={() => setFamilyModalOpen(false)}
-        city={city}
-        onChangeCity={() => openCityPicker()}
-      />
-      <ClosedRoadModal
-        open={roadModalOpen}
-        onClose={() => setRoadModalOpen(false)}
-        city={city}
-        onChangeCity={() => openCityPicker()}
-        onCreated={(road) => {
-          setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
-          setCategory("vias_cerradas");
-          setSheetMode("peek");
-        }}
-      />
-      <HelpOfferModal
-        open={offerModalOpen}
-        onClose={() => setOfferModalOpen(false)}
-        city={city}
-        onChangeCity={() => openCityPicker()}
-        onCreated={(offer) => {
-          rememberMyOfferId(offer.id);
-          setOffers((prev) => (prev.some((item) => item.id === offer.id) ? prev : [offer, ...prev]));
-          setCategory("ofrezco");
-          setSheetMode("expanded");
-        }}
-      />
-      <RentalFormModal
-        open={rentalModalOpen}
-        onClose={() => setRentalModalOpen(false)}
-        city={city}
-        onChangeCity={() => openCityPicker()}
-        onCreated={(rental) => {
-          rememberMyRentalId(rental.id);
-          setRentals((prev) => (prev.some((item) => item.id === rental.id) ? prev : [rental, ...prev]));
-          setCategory("arriendos");
-          setSelectedRentalId(rental.id);
-          setSheetMode("map");
-        }}
-      />
-      <RegionPicker
-        open={pickerOpen}
-        currentId={city.id}
-        required={needsCity}
-        onClose={() => setPickerOpen(false)}
-        onSelect={handleCityPicked}
-      />
+      {reportModalOpen ? (
+        <RequestHelpModal
+          open={reportModalOpen}
+          onClose={() => setReportModalOpen(false)}
+          onCreated={handleReportCreated}
+          city={city}
+          onChangeCity={() => openCityPicker()}
+        />
+      ) : null}
+      {familyModalOpen ? (
+        <FamilyStatusModal
+          open={familyModalOpen}
+          onClose={() => setFamilyModalOpen(false)}
+          city={city}
+          onChangeCity={() => openCityPicker()}
+        />
+      ) : null}
+      {roadModalOpen ? (
+        <ClosedRoadModal
+          open={roadModalOpen}
+          onClose={() => setRoadModalOpen(false)}
+          city={city}
+          onChangeCity={() => openCityPicker()}
+          onCreated={(road) => {
+            setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
+            setCategory("vias_cerradas");
+            setSheetMode("peek");
+          }}
+        />
+      ) : null}
+      {offerModalOpen ? (
+        <HelpOfferModal
+          open={offerModalOpen}
+          onClose={() => setOfferModalOpen(false)}
+          city={city}
+          onChangeCity={() => openCityPicker()}
+          onCreated={(offer) => {
+            rememberMyOfferId(offer.id);
+            setOffers((prev) => (prev.some((item) => item.id === offer.id) ? prev : [offer, ...prev]));
+            setCategory("ofrezco");
+            setSheetMode("expanded");
+          }}
+        />
+      ) : null}
+      {rentalModalOpen ? (
+        <RentalFormModal
+          open={rentalModalOpen}
+          onClose={() => setRentalModalOpen(false)}
+          city={city}
+          onChangeCity={() => openCityPicker()}
+          onCreated={(rental) => {
+            rememberMyRentalId(rental.id);
+            setRentals((prev) => (prev.some((item) => item.id === rental.id) ? prev : [rental, ...prev]));
+            setCategory("arriendos");
+            setSelectedRentalId(rental.id);
+            setSheetMode("map");
+          }}
+        />
+      ) : null}
+      {pickerOpen ? (
+        <RegionPicker
+          open={pickerOpen}
+          currentId={city.id}
+          required={needsCity}
+          onClose={() => setPickerOpen(false)}
+          onSelect={handleCityPicked}
+        />
+      ) : null}
     </div>
   );
 }

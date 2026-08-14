@@ -7,7 +7,7 @@ import Map, { Layer, Marker, Source, type MapRef } from "react-map-gl/maplibre";
 import { Loader2, Search, Undo2, X } from "lucide-react";
 import { MAP_DEFAULT_CENTER, ROAD_HAZARD_RED, ROAD_HAZARD_YELLOW, type RoadPoint } from "@/lib/types";
 import type { MapPlace } from "@/lib/places";
-import { placesSearchUrl } from "@/lib/regions";
+import { placesSearchUrl } from "@/lib/regions-core";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const VECTOR_STYLE = "https://tiles.openfreemap.org/styles/liberty";

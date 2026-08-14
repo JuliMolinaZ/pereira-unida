@@ -1,29 +1,19 @@
 import rawMunicipalities from "@/lib/data/colombia-municipalities.json";
+import {
+  DEFAULT_CITY_ID,
+  DEFAULT_DEPARTMENT,
+  NATIONAL_CITY,
+  NATIONAL_CITY_ID,
+  cityById as coreCityById,
+  inBbox,
+  type AppCity,
+} from "@/lib/regions-core";
 
-export type GeoBBox = {
-  south: number;
-  west: number;
-  north: number;
-  east: number;
-};
-
-export interface AppCity {
-  id: string;
-  name: string;
-  department: string;
-  center: [number, number];
-  bbox: GeoBBox;
-}
+export * from "@/lib/regions-core";
 
 type MuniRow = [string, string, string, number, number, number, number, number, number];
 
-const ZONE_KEY = "pereiraunida:city-id";
-const CHOSEN_KEY = "pereiraunida:city-chosen";
-
-export const DEFAULT_CITY_ID = "pereira";
-export const DEFAULT_DEPARTMENT = "Risaralda";
-
-function around(lat: number, lng: number, pad: number): GeoBBox {
+function around(lat: number, lng: number, pad: number) {
   return {
     south: lat - pad,
     north: lat + pad,
@@ -41,7 +31,7 @@ function fold(value: string): string {
 }
 
 /** Centros urbanos cuando el polígono municipal es demasiado grande para el mapa. */
-const CENTER_OVERRIDES: Record<string, { center: [number, number]; bbox?: GeoBBox }> = {
+const CENTER_OVERRIDES: Record<string, { center: [number, number]; bbox?: ReturnType<typeof around> }> = {
   pereira: {
     center: [4.8143, -75.6946],
     bbox: { south: 4.74, west: -75.8, north: 4.9, east: -75.62 },
@@ -108,6 +98,7 @@ function hydrate(row: MuniRow): AppCity {
 export const COLOMBIA_CITIES: AppCity[] = (rawMunicipalities as MuniRow[]).map(hydrate);
 
 const CITY_BY_ID = new Map(COLOMBIA_CITIES.map((city) => [city.id, city]));
+CITY_BY_ID.set(NATIONAL_CITY_ID, NATIONAL_CITY);
 for (const [legacy, id] of Object.entries(LEGACY_IDS)) {
   const city = CITY_BY_ID.get(id);
   if (city) CITY_BY_ID.set(legacy, city);
@@ -128,7 +119,7 @@ export const COLOMBIA_DEPARTMENTS: string[] = [
 ];
 
 export function cityById(id: string | null | undefined): AppCity {
-  return CITY_BY_ID.get(id ?? "") ?? CITY_BY_ID.get(DEFAULT_CITY_ID)!;
+  return CITY_BY_ID.get(id ?? "") ?? CITY_BY_ID.get(DEFAULT_CITY_ID) ?? coreCityById(id);
 }
 
 export function citiesInDepartment(department: string): AppCity[] {
@@ -178,6 +169,16 @@ export function suggestedCities(): AppCity[] {
 export function searchCities(query: string, limit = 24): AppCity[] {
   const q = fold(query);
   if (!q) return suggestedCities();
+  if (
+    q === "colombia" ||
+    q === "pais" ||
+    q === "el pais" ||
+    q === "todo el pais" ||
+    q === "toda colombia" ||
+    q === "colombia completa"
+  ) {
+    return [NATIONAL_CITY];
+  }
 
   const exactDept = COLOMBIA_DEPARTMENTS.find((name) => fold(name) === q);
   if (exactDept) return citiesInDepartment(exactDept);
@@ -201,15 +202,7 @@ export function searchCities(query: string, limit = 24): AppCity[] {
   return ranked.slice(0, limit).map((row) => row.city);
 }
 
-export function isRisaraldaMetro(city: AppCity): boolean {
-  return city.id === DEFAULT_CITY_ID || city.id === "dosquebradas";
-}
-
-export function inBbox(bbox: GeoBBox, lat: number, lng: number): boolean {
-  return lat >= bbox.south && lat <= bbox.north && lng >= bbox.west && lng <= bbox.east;
-}
-
-function bboxArea(bbox: GeoBBox): number {
+function bboxArea(bbox: AppCity["bbox"]): number {
   return Math.max(0, bbox.north - bbox.south) * Math.max(0, bbox.east - bbox.west);
 }
 
@@ -221,11 +214,6 @@ export function cityAt(lat: number, lng: number): AppCity | null {
   return hits[0];
 }
 
-/** Colombia continental + San Andrés. */
-export function inColombia(lat: number, lng: number): boolean {
-  return lat >= -4.4 && lat <= 13.6 && lng >= -82.1 && lng <= -66.7;
-}
-
 const CITIES_BY_NAME_LENGTH = [...COLOMBIA_CITIES].sort((a, b) => b.name.length - a.name.length);
 
 export function cityFromText(text: string, fallback: AppCity): AppCity {
@@ -235,55 +223,6 @@ export function cityFromText(text: string, fallback: AppCity): AppCity {
     if (hay.includes(fold(city.name))) return city;
   }
   return fallback;
-}
-
-export type ZoneQuery = {
-  department: string;
-  municipality?: string;
-};
-
-/** Pereira/Dosquebradas: todo Risaralda. Otras ciudades: departamento + municipio. */
-export function zoneQueryFor(city: AppCity): ZoneQuery {
-  if (isRisaraldaMetro(city)) return { department: city.department };
-  return { department: city.department, municipality: city.name };
-}
-
-export function readSavedCityId(): string {
-  if (typeof window === "undefined") return DEFAULT_CITY_ID;
-  try {
-    const raw = window.localStorage.getItem(ZONE_KEY);
-    if (raw && CITY_BY_ID.has(raw)) return CITY_BY_ID.get(raw)!.id;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_CITY_ID;
-}
-
-export function saveCityId(id: string) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(ZONE_KEY, id);
-  } catch {
-    /* ignore */
-  }
-}
-
-export function readCityChosen(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(CHOSEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function saveCityChosen() {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(CHOSEN_KEY, "1");
-  } catch {
-    /* ignore */
-  }
 }
 
 export function isKnownCityName(name: string): boolean {
@@ -298,20 +237,13 @@ export function cityByName(name: string): AppCity | null {
 
 /** Pereira/Dosquebradas se eligen en el metro; el resto usa la ciudad de la zona. */
 export function municipalityForPin(city: AppCity, geoCity?: string): string {
-  if (isRisaraldaMetro(city)) {
+  if (city.id === NATIONAL_CITY_ID) {
+    if (geoCity && isKnownCityName(geoCity)) return geoCity;
+    return "Pereira";
+  }
+  if (city.id === DEFAULT_CITY_ID || city.id === "dosquebradas") {
     if (geoCity === "Pereira" || geoCity === "Dosquebradas") return geoCity;
     return city.name === "Dosquebradas" ? "Dosquebradas" : "Pereira";
   }
   return city.name;
-}
-
-export function isDefaultZone(city: AppCity): boolean {
-  const zone = zoneQueryFor(city);
-  return zone.department === DEFAULT_DEPARTMENT && !zone.municipality;
-}
-
-export function placesSearchUrl(query: string, cityId: string, mode?: "geo"): string {
-  const params = new URLSearchParams({ q: query, city: cityId });
-  if (mode) params.set("mode", mode);
-  return `/api/places?${params.toString()}`;
 }

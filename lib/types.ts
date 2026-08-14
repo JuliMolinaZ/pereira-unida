@@ -101,6 +101,7 @@ export const MAP_DEFAULT_CENTER: { lat: number; lng: number } = {
 };
 
 export const MAP_DEFAULT_ZOOM = 13;
+export const MAP_COUNTRY_ZOOM = 5.4;
 
 export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   alimentos: "Alimentos y Agua",

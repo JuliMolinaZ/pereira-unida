@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-
-function isInAppBrowser() {
-  const ua = navigator.userAgent || "";
-  return /Instagram|FBAN|FBAV|FB_IAB|Line\//i.test(ua);
-}
+import { isInAppBrowser } from "@/lib/device";
 
 /**
  * Registra el service worker vanilla (public/sw.js). Solo en producción:
