@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { HandHeart, Loader2, MessageCircle, Phone } from "lucide-react";
+import { HandHeart, Loader2, MessageCircle, Phone, Share2 } from "lucide-react";
 import { hideHelpOffer } from "@/app/actions";
-import { cn, formatTimeAgo, readMyOfferIds, shareToWhatsAppOffer } from "@/lib/utils";
+import { cn, formatTimeAgo, listShareUrl, readMyOfferIds, shareToWhatsAppOffer } from "@/lib/utils";
 import ExpandableText from "./ExpandableText";
+import ShareButton from "./ShareButton";
 import {
   HELP_SKILL_COLORS,
   HELP_SKILL_EMOJI,
@@ -21,6 +22,7 @@ interface HelpOffersProps {
   onHidden: (offer: HelpOffer) => void;
   showCtas?: boolean;
   cityName?: string;
+  cityId?: string;
 }
 
 export default function HelpOffers({
@@ -30,6 +32,7 @@ export default function HelpOffers({
   onHidden,
   showCtas = true,
   cityName,
+  cityId,
 }: HelpOffersProps) {
   const [skill, setSkill] = useState<HelpSkill | "todos">("todos");
   const [hidingId, setHidingId] = useState<string | null>(null);
@@ -80,6 +83,19 @@ export default function HelpOffers({
           >
             Pedidos
           </button>
+          <ShareButton
+            title="Quienes ayudan en Pereira Unida"
+            text={
+              cityName
+                ? `Mira quién ofrece ayuda en ${cityName} en Pereira Unida.`
+                : "Mira quién ofrece ayuda en Pereira Unida."
+            }
+            url={listShareUrl("ofrezco", cityId)}
+            label="Compartir la lista de quienes ayudan"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5 text-forest dark:bg-white/10"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+          </ShareButton>
         </div>
       ) : null}
 
@@ -229,6 +245,12 @@ function HelpOfferCard({
           <MessageCircle className="h-4 w-4" aria-hidden="true" />
           WhatsApp
         </a>
+        <ShareButton
+          title={`${offer.full_name} ofrece ayuda`}
+          text={`${offer.full_name} ofrece ayuda de ${HELP_SKILL_LABELS[offer.skill]} en Pereira Unida.`}
+          url={listShareUrl("ofrezco")}
+          label={`Compartir la ayuda de ${offer.full_name}`}
+        />
         <a
           href={`tel:${offer.phone}`}
           aria-label={`Llamar a ${offer.full_name}`}

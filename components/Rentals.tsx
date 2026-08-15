@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Home } from "lucide-react";
+import { Home, Share2 } from "lucide-react";
 import { RENTAL_PROPERTY_TYPES, type Rental } from "@/lib/types";
+import { listShareUrl } from "@/lib/utils";
 import RentalCard from "./RentalCard";
+import ShareButton from "./ShareButton";
 
 interface RentalsProps {
   rentals: Rental[];
@@ -14,6 +16,7 @@ interface RentalsProps {
   selectedId?: string | null;
   showCtas?: boolean;
   cityName?: string;
+  cityId?: string;
   showMunicipality?: boolean;
 }
 
@@ -26,6 +29,7 @@ export default function Rentals({
   selectedId = null,
   showCtas = true,
   cityName,
+  cityId,
   showMunicipality = false,
 }: RentalsProps) {
   const [type, setType] = useState<string>("todos");
@@ -88,6 +92,19 @@ export default function Rentals({
               Ver ayudas
             </button>
           ) : null}
+          <ShareButton
+            title="Arriendos en Pereira Unida"
+            text={
+              cityName
+                ? `Mira todos los arriendos disponibles en ${cityName} en Pereira Unida.`
+                : "Mira todos los arriendos disponibles en Pereira Unida."
+            }
+            url={listShareUrl("arriendos", cityId)}
+            label="Compartir la lista de arriendos"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+          </ShareButton>
         </div>
       ) : null}
 

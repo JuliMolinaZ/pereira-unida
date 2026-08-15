@@ -116,6 +116,27 @@ export function shareToWhatsAppRental(rental: Rental): string {
   return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
 }
 
+/** Link directo a una solicitud puntual (para reenviar por WhatsApp, no para contactar). */
+export function reportShareUrl(reportId: string): string {
+  return `${SITE_URL}/?reporte=${reportId}`;
+}
+
+/** Link directo a un arriendo puntual. */
+export function rentalShareUrl(rentalId: string): string {
+  return `${SITE_URL}/?arriendo=${rentalId}`;
+}
+
+/**
+ * Link a una vista filtrada de la app (p. ej. todos los arriendos de una
+ * ciudad) para reenviar por grupos de WhatsApp. `vista` es el valor de
+ * `CategoryQuickFilter` (arriendos, ofrezco, puntos_acopio…).
+ */
+export function listShareUrl(vista: string, cityId?: string): string {
+  const params = new URLSearchParams({ vista });
+  if (cityId) params.set("ciudad", cityId);
+  return `${SITE_URL}/?${params.toString()}`;
+}
+
 /**
  * Formatea una fecha ISO como "Hace X minutos/horas/días" en español.
  */

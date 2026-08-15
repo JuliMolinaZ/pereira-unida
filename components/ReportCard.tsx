@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Loader2, MapPin, MessageCircle, Navigation, Phone } from "lucide-react";
 import { updateReportStatus, confirmReportActive } from "@/app/actions";
-import { formatTimeAgo, googleMapsUrl, shareToWhatsApp, cn } from "@/lib/utils";
+import { formatTimeAgo, googleMapsUrl, reportShareUrl, shareToWhatsApp, cn } from "@/lib/utils";
+import ShareButton from "./ShareButton";
 import {
   CATEGORY_EMOJI,
   CATEGORY_LABELS,
@@ -199,6 +200,13 @@ export default function ReportCard({
           <MessageCircle className="h-4 w-4" aria-hidden="true" />
           WhatsApp
         </a>
+
+        <ShareButton
+          title={report.title}
+          text={`${CATEGORY_LABELS[report.category]}: ${report.title} — ${report.location_name}, ${report.municipality}. Pereira Unida.`}
+          url={reportShareUrl(report.id)}
+          label="Compartir esta solicitud"
+        />
 
         {mapsHref ? (
           <a

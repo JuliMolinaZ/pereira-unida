@@ -17,8 +17,10 @@ import {
   formatTimeAgo,
   googleMapsUrl,
   parseContactPhones,
+  rentalShareUrl,
   shareToWhatsAppRental,
 } from "@/lib/utils";
+import ShareButton from "./ShareButton";
 
 interface RentalCardProps {
   rental: Rental;
@@ -143,6 +145,12 @@ export default function RentalCard({
               <MessageCircle className="h-4 w-4" aria-hidden="true" />
               WhatsApp
             </a>
+            <ShareButton
+              title={`${rental.property_type} en arriendo`}
+              text={`${rental.property_type} en ${place || rental.municipality} — ${formatCop(rental.monthly_rent)}. Pereira Unida.`}
+              url={rentalShareUrl(rental.id)}
+              label="Compartir este arriendo"
+            />
             {phones[0] ? (
               <a
                 href={`tel:${phones[0]}`}

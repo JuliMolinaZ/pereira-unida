@@ -93,6 +93,29 @@ type SheetMode = "map" | "peek" | "expanded";
 
 const SHEET_DRAG_THRESHOLD = 28;
 
+/** Valores válidos para `?vista=` al abrir un link compartido (ver `listShareUrl`). */
+const VALID_VISTA_VALUES = new Set<CategoryQuickFilter>([
+  "todos",
+  "puntos_acopio",
+  "vias_cerradas",
+  "ofrezco",
+  "arriendos",
+  "alimentos",
+  "herramientas",
+  "medicinas",
+  "voluntariado",
+  "otros",
+  "herramientas_rescate",
+  "conectividad_energia",
+  "mascotas",
+  "revision_ingenieria",
+  "transporte_logistica",
+]);
+
+function isValidVista(value: string | null): value is CategoryQuickFilter {
+  return value !== null && VALID_VISTA_VALUES.has(value as CategoryQuickFilter);
+}
+
 function sheetHeight(mode: SheetMode): string {
   if (mode === "expanded") return "var(--sheet-expanded)";
   if (mode === "map") return "var(--sheet-map)";
@@ -243,18 +266,28 @@ export default function HomeClient({
   }
 
   useEffect(() => {
+    const params =
+      typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const fromProp = initialReportId;
-    const fromUrl =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("reporte")
-        : null;
-    const id = fromProp || fromUrl;
-    if (!id) return;
+    const reportId = fromProp || params?.get("reporte") || null;
+    const rentalId = params?.get("arriendo") || null;
+    const vista = params?.get("vista") ?? null;
+
+    if (!reportId && !rentalId && !isValidVista(vista)) return;
     setAppliedInitialReportId(true);
-    setSelectedReportId(id);
-    setCategory("todos");
-    setMunicipality("todos");
-    setPriorityMode(false);
+
+    if (reportId) {
+      setSelectedReportId(reportId);
+      setCategory("todos");
+      setMunicipality("todos");
+      setPriorityMode(false);
+    } else if (rentalId) {
+      setSelectedRentalId(rentalId);
+      setCategory("arriendos");
+    } else if (isValidVista(vista)) {
+      setCategory(vista);
+      setPriorityMode(false);
+    }
   }, [initialReportId]);
 
   useEffect(() => {
@@ -264,6 +297,19 @@ export default function HomeClient({
   }, [appliedInitialReportId]);
 
   useEffect(() => {
+    const cityIdFromUrl =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("ciudad")
+        : null;
+    if (cityIdFromUrl) {
+      const urlCity = cityById(cityIdFromUrl);
+      setCity(urlCity);
+      saveCity(urlCity);
+      saveCityChosen();
+      setNeedsCity(false);
+      setZoneReady(true);
+      return;
+    }
     const saved = readSavedCity();
     const chosen = readCityChosen();
     setCity(saved);
@@ -417,7 +463,25 @@ export default function HomeClient({
       const supabase = getSupabaseBrowserClient();
       channel = supabase
         .channel("reports-changes")
-        .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, () => refetch())
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "reports" },
+          (payload) => {
+            if (payload.eventType === "INSERT" && payload.new) {
+              const next = { ...(payload.new as Report), comments_count: 0 };
+              if (!belongsToActiveZone(next)) return;
+              setReports((prev) => (prev.some((r) => r.id === next.id) ? prev : [next, ...prev]));
+            } else if (payload.eventType === "UPDATE" && payload.new) {
+              const next = payload.new as Report;
+              setReports((prev) =>
+                prev.map((r) => (r.id === next.id ? { ...r, ...next, comments_count: r.comments_count } : r))
+              );
+            } else if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setReports((prev) => prev.filter((r) => r.id !== id));
+            }
+          }
+        )
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "closed_roads" },
@@ -538,7 +602,7 @@ export default function HomeClient({
           }
         )
         .subscribe();
-    }, isInAppBrowser() ? 3200 : 1600);
+    }, (isInAppBrowser() ? 3200 : 1600) + Math.floor(Math.random() * 1500));
 
     return () => {
       cancelled = true;
@@ -1003,6 +1067,7 @@ export default function HomeClient({
               <HelpOffers
                 offers={offers}
                 cityName={city.name}
+                cityId={city.id}
                 onPublish={() => setOfferModalOpen(true)}
                 onSeeNeeds={handleWantsToHelp}
                 onHidden={(offer) =>
@@ -1013,6 +1078,7 @@ export default function HomeClient({
               <Rentals
                 rentals={visibleRentals}
                 cityName={city.name}
+                cityId={city.id}
                 selectedId={selectedRentalId}
                 showMunicipality={showPlaceOnCards}
                 onPublish={() => setRentalModalOpen(true)}
