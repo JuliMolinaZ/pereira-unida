@@ -147,6 +147,8 @@ export const ACOPIO_COLOR = "#c4a35a";
 export const OFFER_COLOR = "#2f6b4f";
 export const RENTAL_COLOR = "#1a6b78";
 export const RENTAL_EMOJI = "🏠";
+/** Color del globo de agrupación de reportes en el mapa (mezcla varias categorías). */
+export const REPORT_CLUSTER_COLOR = "#a61b1b";
 
 export const MUNICIPALITY_COLORS: Record<MetroCity, string> = {
   Pereira: "#a61b1b",

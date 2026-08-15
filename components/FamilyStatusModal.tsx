@@ -456,7 +456,9 @@ export default function FamilyStatusModal({
                         Cédula {maskDocumentId(person.document_id)}
                       </p>
                     ) : null}
-                    <p className="text-xs text-ink-soft">{formatTimeAgo(person.created_at)}</p>
+                    <p className="text-xs text-ink-soft" suppressHydrationWarning>
+                      {formatTimeAgo(person.created_at)}
+                    </p>
                   </div>
                 </div>
                 {person.photo_urls && person.photo_urls.length > 1 ? (

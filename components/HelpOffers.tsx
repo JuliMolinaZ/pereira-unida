@@ -231,7 +231,9 @@ function HelpOfferCard({
               className="mt-0.5 text-[13px] leading-snug whitespace-pre-wrap break-words text-ink-soft"
             />
           ) : null}
-          <p className="mt-1 text-[11px] text-ink-soft">{formatTimeAgo(offer.created_at)}</p>
+          <p className="mt-1 text-[11px] text-ink-soft" suppressHydrationWarning>
+            {formatTimeAgo(offer.created_at)}
+          </p>
         </div>
       </div>
 

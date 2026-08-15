@@ -105,7 +105,7 @@ export default function RentalCard({
           </p>
           <p className="mt-0.5 text-[11px] text-ink-soft">
             {showMunicipality ? `${rental.municipality} · ` : ""}
-            {formatTimeAgo(when)}
+            <span suppressHydrationWarning>{formatTimeAgo(when)}</span>
             {rental.lat == null ? " · Sin pin en el mapa" : ""}
           </p>
         </div>

@@ -99,7 +99,7 @@ export default function ReportCard({
                 {CATEGORY_LABELS[report.category]} · {report.location_name}
                 {showMunicipality ? ` · ${report.municipality}` : ""}
               </span>
-              <span className="ml-auto shrink-0 text-[10px] text-ink-soft/70">
+              <span className="ml-auto shrink-0 text-[10px] text-ink-soft/70" suppressHydrationWarning>
                 {formatTimeAgo(report.last_confirmed_at || report.created_at)}
               </span>
             </p>
@@ -159,7 +159,7 @@ export default function ReportCard({
           <span className="sr-only">{URGENCY_LABELS[report.urgent_level]} · </span>
           {CATEGORY_EMOJI[report.category]} {CATEGORY_LABELS[report.category]}
         </span>
-        <span className="ml-auto shrink-0 text-[12px] text-ink-soft/70">
+        <span className="ml-auto shrink-0 text-[12px] text-ink-soft/70" suppressHydrationWarning>
           {formatTimeAgo(report.last_confirmed_at || report.created_at)}
         </span>
       </div>

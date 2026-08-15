@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import { type StyleSpecification } from "maplibre-gl";
 import Map, { Layer, Marker, Popup, Source, type MapRef } from "react-map-gl/maplibre";
+import Supercluster, { type ClusterFeature, type PointFeature } from "supercluster";
 import { Locate, Navigation } from "lucide-react";
 import SupportFab from "./SupportFab";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -15,6 +16,7 @@ import {
   MAP_DEFAULT_ZOOM,
   RENTAL_COLOR,
   RENTAL_EMOJI,
+  REPORT_CLUSTER_COLOR,
   ROAD_HAZARD_RED,
   ROAD_HAZARD_YELLOW,
   CLOSED_ROAD_REASON_LABELS,
@@ -67,6 +69,18 @@ function hasMapCoords<T extends { lat: number | null; lng: number | null }>(
     Number.isFinite(Number(item.lat)) &&
     Number.isFinite(Number(item.lng))
   );
+}
+
+/** Caja aproximada para el primer render, antes de que el mapa reporte sus
+ * bounds reales en `onLoad`/`onMoveEnd`. Solo decide qué se agrupa en el
+ * primer frame; se corrige sola apenas el mapa está listo. */
+function initialBounds(
+  lat: number,
+  lng: number,
+  zoom: number
+): [number, number, number, number] {
+  const span = 360 / Math.pow(2, zoom);
+  return [lng - span * 1.5, lat - span * 1.5, lng + span * 1.5, lat + span * 1.5];
 }
 
 function mixHex(hex: string, target: string, amount: number): string {
@@ -172,6 +186,69 @@ function MapPinMarker({
   );
 }
 
+function ClusterMarker({
+  count,
+  color,
+  onClick,
+}: {
+  count: number;
+  color: string;
+  onClick: () => void;
+}) {
+  const size = count >= 100 ? 46 : count >= 10 ? 40 : 34;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      aria-label={`${count} agrupados aquí, toca para acercar`}
+      className="flex items-center justify-center rounded-full border-2 border-white font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+      style={{ width: size, height: size, backgroundColor: color, fontSize: count >= 100 ? 12 : 13 }}
+    >
+      {count > 999 ? "999+" : count}
+    </button>
+  );
+}
+
+type ClusterOrPoint<P extends { id: string }> = ClusterFeature<P> | PointFeature<P>;
+
+function isCluster<P extends { id: string }>(
+  feature: ClusterOrPoint<P>
+): feature is ClusterFeature<P> {
+  return "cluster" in feature.properties && feature.properties.cluster === true;
+}
+
+/** Agrupa puntos cercanos en el mapa para no montar cientos de marcadores DOM
+ * a la vez (lento y borroso en celulares gama baja). `maxZoom` bajo asegura
+ * que el punto seleccionado (que hace flyTo a zoom ≥15) siempre se muestre
+ * suelto, nunca dentro de una burbuja. */
+function useMapClusters<T extends { id: string; lat: number; lng: number }>(
+  items: T[],
+  viewport: { zoom: number; bounds: [number, number, number, number] },
+  radius: number
+) {
+  const index = useMemo(() => {
+    const idx = new Supercluster<{ id: string }>({ radius, maxZoom: 14 });
+    idx.load(
+      items.map((item) => ({
+        type: "Feature" as const,
+        properties: { id: item.id },
+        geometry: { type: "Point" as const, coordinates: [item.lng, item.lat] },
+      }))
+    );
+    return idx;
+  }, [items, radius]);
+
+  const features = useMemo(
+    () => index.getClusters(viewport.bounds, viewport.zoom) as ClusterOrPoint<{ id: string }>[],
+    [index, viewport]
+  );
+
+  return { index, features };
+}
+
 interface ReportsMapProps {
   reports: Report[];
   points: CollectionPoint[];
@@ -242,10 +319,49 @@ export default function ReportsMap({
     })),
   };
 
-  const geolocatedReports = reports.filter(hasMapCoords);
-  const geolocatedPoints = points.filter(hasMapCoords);
-  const geolocatedRentals = rentals.filter(hasMapCoords);
+  const geolocatedReports = useMemo(() => reports.filter(hasMapCoords), [reports]);
+  const geolocatedPoints = useMemo(() => points.filter(hasMapCoords), [points]);
+  const geolocatedRentals = useMemo(() => rentals.filter(hasMapCoords), [rentals]);
   const missingLocationCount = reports.length - geolocatedReports.length;
+
+  const [viewport, setViewport] = useState<{ zoom: number; bounds: [number, number, number, number] }>(
+    () => ({
+      zoom: Math.round(zoom),
+      bounds: initialBounds(centerLat, centerLng, zoom),
+    })
+  );
+
+  const syncViewport = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const b = map.getBounds();
+    setViewport({
+      zoom: Math.round(map.getZoom()),
+      bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+    });
+  }, []);
+
+  const reportsForCluster = useMemo(
+    () =>
+      geolocatedReports.map((r) => ({ id: r.id, lat: Number(r.lat), lng: Number(r.lng) })),
+    [geolocatedReports]
+  );
+  const rentalsForCluster = useMemo(
+    () =>
+      geolocatedRentals.map((r) => ({ id: r.id, lat: Number(r.lat), lng: Number(r.lng) })),
+    [geolocatedRentals]
+  );
+
+  const reportClusters = useMapClusters(reportsForCluster, viewport, 56);
+  const rentalClusters = useMapClusters(rentalsForCluster, viewport, 60);
+  const reportsById = useMemo(
+    () => new globalThis.Map(geolocatedReports.map((r) => [r.id, r])),
+    [geolocatedReports]
+  );
+  const rentalsById = useMemo(
+    () => new globalThis.Map(geolocatedRentals.map((r) => [r.id, r])),
+    [geolocatedRentals]
+  );
 
   const selectedReport = geolocatedReports.find((r) => r.id === selectedReportId);
   const selectedRental = geolocatedRentals.find((item) => item.id === selectedRentalId);
@@ -413,7 +529,11 @@ export default function ReportsMap({
         style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
         attributionControl={{ compact: true }}
         interactiveLayerIds={activeRoads.length > 0 ? ["closed-roads-hit"] : undefined}
-        onLoad={() => mapRef.current?.resize()}
+        onLoad={() => {
+          mapRef.current?.resize();
+          syncViewport();
+        }}
+        onMoveEnd={syncViewport}
         onClick={(e) => {
           const feature = e.features?.find((item) => item.layer.id === "closed-roads-hit");
           const roadId = feature?.properties?.id;
@@ -461,7 +581,31 @@ export default function ReportsMap({
           </Source>
         )}
 
-        {geolocatedReports.map((report) => {
+        {reportClusters.features.map((feature) => {
+          const [lng, lat] = feature.geometry.coordinates;
+          if (isCluster(feature)) {
+            const clusterId = feature.properties.cluster_id;
+            const count = feature.properties.point_count;
+            return (
+              <Marker key={`report-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
+                <ClusterMarker
+                  count={count}
+                  color={REPORT_CLUSTER_COLOR}
+                  onClick={() => {
+                    const map = mapRef.current;
+                    if (!map) return;
+                    const targetZoom = Math.min(
+                      reportClusters.index.getClusterExpansionZoom(clusterId),
+                      16
+                    );
+                    map.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 500 });
+                  }}
+                />
+              </Marker>
+            );
+          }
+          const report = reportsById.get(feature.properties.id);
+          if (!report) return null;
           const selected = report.id === selectedReportId;
           return (
             <Marker
@@ -514,7 +658,31 @@ export default function ReportsMap({
           </Marker>
         ))}
 
-        {geolocatedRentals.map((rental) => {
+        {rentalClusters.features.map((feature) => {
+          const [lng, lat] = feature.geometry.coordinates;
+          if (isCluster(feature)) {
+            const clusterId = feature.properties.cluster_id;
+            const count = feature.properties.point_count;
+            return (
+              <Marker key={`rental-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
+                <ClusterMarker
+                  count={count}
+                  color={RENTAL_COLOR}
+                  onClick={() => {
+                    const map = mapRef.current;
+                    if (!map) return;
+                    const targetZoom = Math.min(
+                      rentalClusters.index.getClusterExpansionZoom(clusterId),
+                      16
+                    );
+                    map.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 500 });
+                  }}
+                />
+              </Marker>
+            );
+          }
+          const rental = rentalsById.get(feature.properties.id);
+          if (!rental) return null;
           const selected = rental.id === selectedRentalId;
           return (
             <Marker
