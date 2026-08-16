@@ -458,6 +458,8 @@ type ReportListFilters = {
   department?: string;
   search?: string;
   limit?: number;
+  /** Filtra por estado (ej. solo activos). Sin esto, trae cualquier estado. */
+  statuses?: ReportStatus[];
 };
 
 async function loadReports(
@@ -481,6 +483,9 @@ async function loadReports(
     }
     if (filters?.municipality && filters.municipality !== "todos") {
       query = query.eq("municipality", filters.municipality);
+    }
+    if (filters?.statuses && filters.statuses.length > 0) {
+      query = query.in("status", filters.statuses);
     }
     const q = sanitizeIlikeInput(filters?.search);
     if (q) {
@@ -769,7 +774,7 @@ export async function getReports(
       municipality: municipalityFilter,
       department: departmentFilter,
       search: searchQuery,
-      limit: 500,
+      limit: 1000,
     });
     if (pack.error) {
       console.error("getReports error:", pack.error);
@@ -922,13 +927,34 @@ export async function getHomeData(
         .order("synced_at", { ascending: false })
         .limit(EXTERNAL_ROW_LIMIT);
 
-    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes, externalCentrosRes, externalAyudasRes, externalAfectacionesRes] =
-      await Promise.all([
-        loadReports(sb.client, {
+    // Los activos son el dato de seguridad: nunca se recortan por un tope
+    // bajo, porque una solicitud real quedando afuera del límite es gente
+    // pidiendo ayuda que deja de verse, no solo un número desactualizado.
+    // Ya pasó: Risaralda superó el viejo tope de 180 activos a mitad de la
+    // emergencia. Lo cerrado/resuelto sí acepta un tope más chico — es
+    // contexto histórico, no urgencia en curso.
+    const loadReportsSplit = async () => {
+      const [active, closed] = await Promise.all([
+        loadReports(sb.client!, {
           department: zone.department,
           municipality: zone.municipality,
-          limit: zone.department ? 180 : 400,
+          statuses: ["buscando", "en_camino"],
+          limit: 2000,
         }),
+        loadReports(sb.client!, {
+          department: zone.department,
+          municipality: zone.municipality,
+          statuses: ["resuelto", "informacion_falsa", "duplicado"],
+          limit: zone.department ? 200 : 400,
+        }),
+      ]);
+      if (active.error) return active;
+      return { rows: [...active.rows, ...closed.rows], error: closed.error };
+    };
+
+    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes, externalCentrosRes, externalAyudasRes, externalAfectacionesRes] =
+      await Promise.all([
+        loadReportsSplit(),
         loadSide("collection_points", "name", true),
         loadSide("closed_roads", "created_at", false),
         loadSide("help_offers", "created_at", false),
