@@ -71,6 +71,18 @@ npx vercel
 
 Agrega las mismas variables de entorno del proyecto de Vercel (Settings → Environment Variables) y despliega a producción con `npx vercel --prod`.
 
+## API pública (para que otras apps consuman datos)
+
+`/api/public/v1/ayudas` y `/api/public/v1/ayudantes` exponen en JSON, de solo lectura, las solicitudes de ayuda y las ofertas de ayuda activas. Documentación interactiva (Swagger UI) en **`/docs/api`**, con spec OpenAPI en `/api/public/v1/openapi.json`.
+
+1. Define `PUBLIC_API_KEY` en las variables de entorno (una key larga y aleatoria, ej. `openssl rand -hex 24`). Sin esta variable, ambos endpoints responden `503` — la API queda deshabilitada por defecto.
+2. Compartí esa key con quien vaya a consumir la API. La mandan como header `Authorization: Bearer <key>` (o `X-Api-Key: <key>`).
+3. Entrá a `/docs/api`, tocá **Authorize**, pegá la key y probá los endpoints desde ahí mismo.
+
+Parámetros de query: `municipio`, `categoria` (en `/ayudas`) o `habilidad` (en `/ayudantes`), `estado`, `limit` (máx. 200). Ver el spec en `/docs/api` para el detalle completo.
+
+**Nunca se expone `contact_phone` ni `phone`** aunque la propia app sí los muestre completos al usuario (ver "Notas de seguridad" más abajo): una cosa es que una persona vea un teléfono de a uno en la web, y otra muy distinta es que cualquier app con la key pueda exportar en bloque los teléfonos de personas en emergencia. Si necesitás que una app aliada también pueda iniciar contacto, lo mejor es agregar ese campo como opt-in explícito para esa integración puntual, no abrirlo por defecto a todo el que tenga la key.
+
 ## Estructura relevante
 
 ```
@@ -87,6 +99,9 @@ app/layout.tsx                Metadata PWA (manifest, iconos) + registro del ser
 components/HomeClient.tsx     Orquestador cliente: filtros, Realtime, estado
 components/FamilyStatusModal.tsx  Red familiar: buscar por nombre/documento y "Estoy Bien"
 components/CollectionPoints.tsx   Puntos de acopio: filtro por municipio + alta con PIN
+lib/publicApi.ts               API key + rate limit + campos públicos (sin teléfonos) para /api/public/v1
+app/api/public/v1/             Endpoints públicos: ayudas, ayudantes, openapi.json
+app/docs/api/page.tsx          Swagger UI (lee /api/public/v1/openapi.json)
 lib/photos.ts                 Límites y validación de fotos (bucket community-photos)
 components/PhotoPicker.tsx    Adjuntar hasta 3 fotos (cámara o galería)
 components/PhotoStrip.tsx     Miniaturas de fotos en cards y búsqueda familiar
@@ -103,6 +118,8 @@ Este MVP usa RLS con lectura y escritura pública (sin login) para permitir repo
 - **Documento de identidad enmascarado.** Los resultados de búsqueda nunca muestran la cédula completa (`maskDocumentId`: solo los últimos 4 dígitos). El teléfono de contacto sí se muestra completo a propósito — es una emergencia y se necesita poder llamar.
 - **Fotos públicas a propósito.** El bucket `community-photos` es de lectura pública (CDN de Supabase) para que familia y voluntarios vean la imagen sin login. El server valida tipo (JPEG/PNG/WebP/HEIC), tamaño (5 MB) y cabecera del archivo; máximo 3 fotos por envío. No hay borrado desde el cliente.
 - **Alta de acopio protegida por PIN, no por cuenta.** `createCollectionPoint` compara `ACOPIO_PIN` en tiempo constante (`timingSafeStringEqual`) contra un PIN compartido por el equipo organizador. Si defines `SUPABASE_SERVICE_ROLE_KEY`, el insert se hace con esa clave (bypass controlado de RLS) y puedes cerrar la policy pública de insert (ver el paso opcional al final de la migración en `schema.sql`). Si no la defines, el insert sigue abierto a la anon key — el PIN es la única barrera real en ese caso.
+
+- **API pública protegida por key, deshabilitada por defecto.** `/api/public/v1/*` (ver arriba) exige `PUBLIC_API_KEY` — si no está definida, responde `503` en vez de quedar abierta por accidente. Igual que `ACOPIO_PIN`, la comparación es en tiempo constante. Tiene su propio rate limit en memoria (por key, no por IP) con las mismas limitaciones que el de `app/actions.ts`.
 
 Antes de un uso prolongado en producción, considera agregar autenticación ligera, moderación de contenido y un rate limiter distribuido para mitigar spam/abuso a mayor escala.
 
