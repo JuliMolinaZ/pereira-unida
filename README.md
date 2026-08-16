@@ -83,11 +83,32 @@ Parámetros de query: `municipio`, `categoria` (en `/ayudas`) o `habilidad` (en 
 
 **Nunca se expone `contact_phone` ni `phone`** aunque la propia app sí los muestre completos al usuario (ver "Notas de seguridad" más abajo): una cosa es que una persona vea un teléfono de a uno en la web, y otra muy distinta es que cualquier app con la key pueda exportar en bloque los teléfonos de personas en emergencia. Si necesitás que una app aliada también pueda iniciar contacto, lo mejor es agregar ese campo como opt-in explícito para esa integración puntual, no abrirlo por defecto a todo el que tenga la key.
 
+## Fuentes externas que consumimos (Ayudas Pereira, Corag, Pereira Responde)
+
+Al revés de la sección anterior: acá Pereira Unida es quien lee datos de otros. `lib/externalSync.ts` sincroniza tres fuentes públicas hacia `external_centros`, `external_ayudas` y `external_afectaciones` (migración `20260817000000_external_sources.sql`), y la home las muestra mezcladas con lo propio pero **siempre con un sello de procedencia** (`components/FuenteBadge.tsx`) — nunca se presentan como si fueran datos nuestros.
+
+| Fuente | Qué trae | Dónde se ve en la app |
+|---|---|---|
+| **Ayudas Pereira** (Supabase público) | Centros de acopio y qué necesitan | Vista "Puntos de acopio" |
+| **Corag** (`ayuda.corag.app`, API pública) | Peticiones (`request`) y ofrecimientos (`offer`) de ayuda directa entre personas | "También piden ayuda" en la lista de solicitudes; "También ofrecen ayuda" en Ofrecer |
+| **Pereira Responde** (`pereiraresponde.co`, API pública) | Vías cerradas y edificios dañados | Vista "Vías cerradas" + sección "Daños estructurales" |
+
+**Sin Cron frecuente a propósito.** El plan de Vercel de este proyecto es Hobby, que solo permite Cron 1 vez al día — insuficiente para algo parecido a tiempo real. En vez de eso, `getHomeData()` dispara la sincronización con `after()` de Next.js en **cada visita**, sin bloquear la respuesta de nadie. Un candado atómico en `external_sync_state` (columna `syncing_since`, reclamada con un `UPDATE ... WHERE` que solo un request puede ganar) hace que de cientos de visitas simultáneas, como mucho una cada ~3 minutos por fuente haga el trabajo real — las demás lo ven y se saltan. El resultado: sin infraestructura nueva, sin costo, y los datos rara vez tienen más de unos minutos.
+
+`/api/cron/sync-external` (protegido por `CRON_SECRET`, header `Authorization: Bearer <valor>`) fuerza una sincronización manual — útil para probar, o para engancharlo a un disparador externo (GitHub Actions, `pg_cron`, etc.) si algún día hace falta más frecuencia que la que da el tráfico solo.
+
+**Nunca se cargan las fotos de Pereira Responde.** Su propia documentación advierte que pesan 3-7 MB cada una sin miniatura; solo se guarda `photo_count`. Ídem el `municipality` de Corag: en realidad es el barrio (`location.neighborhood`), no un municipio exacto — se muestra como contexto de ubicación, no se usa para filtrar por ciudad.
+
+Si alguna de las tres fuentes cae o cambia su esquema, la sincronización de esa fuente falla sola (`external_sync_state.last_error` guarda el motivo) sin afectar a las otras dos ni a los datos propios de Pereira Unida — `getHomeData()` trata las tablas `external_*` como aditivas y opcionales.
+
 ## Estructura relevante
 
 ```
 schema.sql                    Esquema SQL de Supabase (tablas, RLS, Realtime) + migraciones al final
 supabase/migrations/          Mismas migraciones en formato `supabase db push`
+lib/externalSync.ts           Sincroniza Ayudas Pereira, Corag y Pereira Responde (ver sección arriba)
+app/api/cron/sync-external/   Disparo manual de esa sincronización, protegido por CRON_SECRET
+components/FuenteBadge.tsx    Sello de procedencia para datos de fuentes externas
 lib/types.ts                  Tipos compartidos (Report, CollectionPoint, PeopleStatus, maskDocumentId...)
 lib/utils.ts                  shareToWhatsApp, formatTimeAgo, googleMapsUrl
 lib/supabase/config.ts        getSupabaseConfigError(): detecta placeholders antes de cualquier fetch

@@ -420,6 +420,86 @@ export function maskDocumentId(id: string | null): string | null {
   return "****" + d.slice(-4);
 }
 
+/**
+ * Fuentes externas sincronizadas (ver lib/externalSync.ts). Cada dato lleva
+ * su sello de procedencia — nunca se mezclan con lo publicado en Pereira
+ * Unida sin marcar de dónde viene.
+ */
+export type ExternalFuente = "ayudas_pereira" | "corag" | "pereira_responde";
+
+export const EXTERNAL_FUENTE_LABELS: Record<ExternalFuente, string> = {
+  ayudas_pereira: "Ayudas Pereira",
+  corag: "Corag",
+  pereira_responde: "Pereira Responde",
+};
+
+/** Mismo espíritu de color que usa el propio agregador (aqui-ayuda): cada fuente con su color de marca. */
+export const EXTERNAL_FUENTE_COLORS: Record<ExternalFuente, string> = {
+  ayudas_pereira: "#b8860b",
+  corag: "#65a30d",
+  pereira_responde: "#dc2626",
+};
+
+export interface ExternalNecesidad {
+  categoria: string;
+  prioridad: string;
+  descripcion: string | null;
+}
+
+export interface ExternalCentro {
+  id: string;
+  fuente: "ayudas_pereira";
+  external_id: string;
+  nombre: string;
+  direccion: string | null;
+  municipality: string | null;
+  lat: number | null;
+  lng: number | null;
+  abierto: boolean;
+  foto: string | null;
+  necesidades: ExternalNecesidad[];
+  synced_at: string;
+}
+
+export interface ExternalAyuda {
+  id: string;
+  fuente: "corag";
+  external_id: string;
+  tipo: "request" | "offer";
+  title: string;
+  description: string | null;
+  category: string | null;
+  urgency: string | null;
+  status: string | null;
+  address: string | null;
+  municipality: string | null;
+  lat: number | null;
+  lng: number | null;
+  contact_name: string | null;
+  contact_whatsapp: string | null;
+  public_url: string | null;
+  created_at_source: string | null;
+  synced_at: string;
+}
+
+export interface ExternalAfectacion {
+  id: string;
+  fuente: "pereira_responde";
+  external_id: string;
+  tipo: "housing" | "road" | "support";
+  gravedad: string | null;
+  title: string;
+  subtipo: string | null;
+  nota: string | null;
+  lat: number | null;
+  lng: number | null;
+  photo_count: number;
+  votes: number;
+  score: number;
+  created_at_source: string | null;
+  synced_at: string;
+}
+
 /** Resultado de getHomeData(): datos iniciales de la home + un mensaje de
  * error en español si Supabase no está configurado o no respondió. */
 export interface HomeData {
@@ -428,5 +508,8 @@ export interface HomeData {
   roads: ClosedRoad[];
   offers: HelpOffer[];
   rentals: Rental[];
+  externalCentros: ExternalCentro[];
+  externalAyudas: ExternalAyuda[];
+  externalAfectaciones: ExternalAfectacion[];
   error: string | null;
 }

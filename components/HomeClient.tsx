@@ -15,7 +15,15 @@ import { AlertTriangle, Loader2, Navigation, X } from "lucide-react";
 import { getHomeData, getReports, reopenClosedRoad } from "@/app/actions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { cn, googleMapsUrl, isReportFromLastHours, rememberMyOfferId, rememberMyRentalId } from "@/lib/utils";
+import {
+  cn,
+  googleMapsUrl,
+  isReportFromLastHours,
+  listShareUrl,
+  rememberMyOfferId,
+  rememberMyRentalId,
+} from "@/lib/utils";
+import ShareButton from "./ShareButton";
 import {
   CATEGORY_LABELS,
   CLOSED_ROAD_REASON_LABELS,
@@ -25,9 +33,13 @@ import {
   MAP_DEFAULT_ZOOM,
   type ClosedRoad,
   type CollectionPoint,
+  type ExternalAfectacion,
+  type ExternalAyuda,
+  type ExternalCentro,
   type HelpOffer,
   type Rental,
   type Report,
+  type ReportCategory,
 } from "@/lib/types";
 import {
   matchesHaystack,
@@ -80,6 +92,8 @@ const RentalFormModal = dynamic(() => import("./RentalFormModal"));
 const RentalCard = dynamic(() => import("./RentalCard"));
 const ReportCard = dynamic(() => import("./ReportCard"));
 const RegionPicker = dynamic(() => import("./RegionPicker"));
+const ExternalAyudaCard = dynamic(() => import("./ExternalAyudaCard"));
+const ExternalAfectacionCard = dynamic(() => import("./ExternalAfectacionCard"));
 
 function MapBootScreen() {
   return (
@@ -193,6 +207,9 @@ interface HomeClientProps {
   initialRoads?: ClosedRoad[];
   initialOffers?: HelpOffer[];
   initialRentals?: Rental[];
+  initialExternalCentros?: ExternalCentro[];
+  initialExternalAyudas?: ExternalAyuda[];
+  initialExternalAfectaciones?: ExternalAfectacion[];
   initialReportId?: string | null;
   dataError?: string | null;
 }
@@ -203,11 +220,19 @@ export default function HomeClient({
   initialRoads = [],
   initialOffers = [],
   initialRentals = [],
+  initialExternalCentros = [],
+  initialExternalAyudas = [],
+  initialExternalAfectaciones = [],
   initialReportId = null,
   dataError = null,
 }: HomeClientProps) {
   const [reports, setReports] = useState<Report[]>(initialReports);
   const [points, setPoints] = useState<CollectionPoint[]>(initialPoints);
+  const [externalCentros, setExternalCentros] = useState<ExternalCentro[]>(initialExternalCentros);
+  const [externalAyudas, setExternalAyudas] = useState<ExternalAyuda[]>(initialExternalAyudas);
+  const [externalAfectaciones, setExternalAfectaciones] = useState<ExternalAfectacion[]>(
+    initialExternalAfectaciones
+  );
   const [city, setCity] = useState<AppCity>(() => cityById(DEFAULT_CITY_ID));
   const [departmentFocus, setDepartmentFocus] = useState<string>("todos");
   const [zoneReady, setZoneReady] = useState(false);
@@ -250,6 +275,10 @@ export default function HomeClient({
   const isRoadsView = category === "vias_cerradas";
   const isOffersView = category === "ofrezco";
   const isRentalsView = category === "arriendos";
+  const shareableCategory =
+    !isPointsView && !isRoadsView && !isOffersView && !isRentalsView && category !== "todos"
+      ? (category as ReportCategory)
+      : null;
   const showMetroChips = isRisaraldaMetro(city);
   const nationwide = isNationwide(city);
   const showPlaceOnCards = showMetroChips || nationwide;
@@ -601,6 +630,63 @@ export default function HomeClient({
             );
           }
         )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "external_centros" },
+          (payload) => {
+            if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setExternalCentros((prev) => prev.filter((c) => c.id !== id));
+              return;
+            }
+            if (payload.new) {
+              const next = payload.new as ExternalCentro;
+              setExternalCentros((prev) =>
+                prev.some((c) => c.id === next.id)
+                  ? prev.map((c) => (c.id === next.id ? next : c))
+                  : [next, ...prev]
+              );
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "external_ayudas" },
+          (payload) => {
+            if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setExternalAyudas((prev) => prev.filter((a) => a.id !== id));
+              return;
+            }
+            if (payload.new) {
+              const next = payload.new as ExternalAyuda;
+              setExternalAyudas((prev) =>
+                prev.some((a) => a.id === next.id)
+                  ? prev.map((a) => (a.id === next.id ? next : a))
+                  : [next, ...prev]
+              );
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "external_afectaciones" },
+          (payload) => {
+            if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setExternalAfectaciones((prev) => prev.filter((a) => a.id !== id));
+              return;
+            }
+            if (payload.new) {
+              const next = payload.new as ExternalAfectacion;
+              setExternalAfectaciones((prev) =>
+                prev.some((a) => a.id === next.id)
+                  ? prev.map((a) => (a.id === next.id ? next : a))
+                  : [next, ...prev]
+              );
+            }
+          }
+        )
         .subscribe();
     }, (isInAppBrowser() ? 3200 : 1600) + Math.floor(Math.random() * 1500));
 
@@ -724,6 +810,23 @@ export default function HomeClient({
     municipality === "todos" ? true : p.municipality === municipality
   );
   const mapRentals = isSearching || isRentalsView ? visibleRentals : [];
+
+  const externalRoadAfectaciones = useMemo(
+    () => externalAfectaciones.filter((a) => a.tipo === "road"),
+    [externalAfectaciones]
+  );
+  const externalDamageAfectaciones = useMemo(
+    () => externalAfectaciones.filter((a) => a.tipo !== "road"),
+    [externalAfectaciones]
+  );
+  const externalRequests = useMemo(
+    () => externalAyudas.filter((a) => a.tipo === "request"),
+    [externalAyudas]
+  );
+  const externalOffers = useMemo(
+    () => externalAyudas.filter((a) => a.tipo === "offer"),
+    [externalAyudas]
+  );
 
   useEffect(() => {
     if (!selectedReportId) return;
@@ -1030,7 +1133,7 @@ export default function HomeClient({
             className="sheet-scroll min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
             {isPointsView && !isSearching ? (
-              <CollectionPoints points={points} city={city} />
+              <CollectionPoints points={points} externalCentros={externalCentros} city={city} />
             ) : isRoadsView && !isSearching ? (
               <div className="space-y-2 p-0.5">
                 <button
@@ -1040,40 +1143,69 @@ export default function HomeClient({
                 >
                   Marcar calle cerrada
                 </button>
-                {mapRoads.length === 0 ? (
+                {mapRoads.length === 0 && externalRoadAfectaciones.length === 0 ? (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     No hay vías cerradas en {city.name}. Márcalas tocando el mapa.
                   </p>
                 ) : (
-                  mapRoads.map((road) => (
-                    <article key={road.id} className="rounded-2xl px-2 py-2">
-                      <p className="text-[13px] font-semibold text-ink">{road.name}</p>
-                      <p className="text-[11px] text-ink-soft">
-                        {CLOSED_ROAD_REASON_LABELS[road.reason]}
-                        {road.note ? ` · ${road.note}` : ""}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handleReopenRoad(road.id)}
-                        className="mt-1 text-[11px] font-semibold text-forest underline underline-offset-2"
-                      >
-                        Ya se puede transitar
-                      </button>
-                    </article>
-                  ))
+                  <>
+                    {mapRoads.map((road) => (
+                      <article key={road.id} className="rounded-2xl px-2 py-2">
+                        <p className="text-[13px] font-semibold text-ink">{road.name}</p>
+                        <p className="text-[11px] text-ink-soft">
+                          {CLOSED_ROAD_REASON_LABELS[road.reason]}
+                          {road.note ? ` · ${road.note}` : ""}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleReopenRoad(road.id)}
+                          className="mt-1 text-[11px] font-semibold text-forest underline underline-offset-2"
+                        >
+                          Ya se puede transitar
+                        </button>
+                      </article>
+                    ))}
+                    {externalRoadAfectaciones.map((afectacion) => (
+                      <ExternalAfectacionCard key={afectacion.id} afectacion={afectacion} />
+                    ))}
+                  </>
                 )}
+                {externalDamageAfectaciones.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="mb-1.5 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Daños estructurales · {externalDamageAfectaciones.length}
+                    </p>
+                    <div className="space-y-2">
+                      {externalDamageAfectaciones.map((afectacion) => (
+                        <ExternalAfectacionCard key={afectacion.id} afectacion={afectacion} />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : isOffersView && !isSearching ? (
-              <HelpOffers
-                offers={offers}
-                cityName={city.name}
-                cityId={city.id}
-                onPublish={() => setOfferModalOpen(true)}
-                onSeeNeeds={handleWantsToHelp}
-                onHidden={(offer) =>
-                  setOffers((prev) => prev.map((item) => (item.id === offer.id ? offer : item)))
-                }
-              />
+              <>
+                <HelpOffers
+                  offers={offers}
+                  cityName={city.name}
+                  cityId={city.id}
+                  onPublish={() => setOfferModalOpen(true)}
+                  onSeeNeeds={handleWantsToHelp}
+                  onHidden={(offer) =>
+                    setOffers((prev) => prev.map((item) => (item.id === offer.id ? offer : item)))
+                  }
+                />
+                {externalOffers.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="mb-1.5 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      También ofrecen ayuda · {externalOffers.length}
+                    </p>
+                    {externalOffers.map((ayuda) => (
+                      <ExternalAyudaCard key={ayuda.id} ayuda={ayuda} />
+                    ))}
+                  </div>
+                ) : null}
+              </>
             ) : isRentalsView && !isSearching ? (
               <Rentals
                 rentals={visibleRentals}
@@ -1094,27 +1226,42 @@ export default function HomeClient({
                   </p>
                 ) : (
                   <>
-                    <div className="mb-1.5 flex items-center gap-1 rounded-full bg-black/5 p-0.5 dark:bg-white/10">
-                      {(
-                        [
-                          ["activos", "Activos", stats.total],
-                          ["todos", "Todos", stats.all],
-                          ["cerrados", "Cerrados", stats.cerrados],
-                        ] as const
-                      ).map(([key, label, count]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setListScope(key)}
-                          className={cn(
-                            "flex flex-1 items-center justify-center gap-1 rounded-full py-1.5 text-[12px] font-semibold transition",
-                            listScope === key ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
-                          )}
-                        >
-                          {label}
-                          <span className="text-[10px] font-medium opacity-70">{count}</span>
-                        </button>
-                      ))}
+                    <div className="mb-1.5 flex items-center gap-1.5">
+                      <div className="flex flex-1 items-center gap-1 rounded-full bg-black/5 p-0.5 dark:bg-white/10">
+                        {(
+                          [
+                            ["activos", "Activos", stats.total],
+                            ["todos", "Todos", stats.all],
+                            ["cerrados", "Cerrados", stats.cerrados],
+                          ] as const
+                        ).map(([key, label, count]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setListScope(key)}
+                            className={cn(
+                              "flex flex-1 items-center justify-center gap-1 rounded-full py-1.5 text-[12px] font-semibold transition",
+                              listScope === key ? "bg-ink text-paper shadow-sm" : "text-ink-soft"
+                            )}
+                          >
+                            {label}
+                            <span className="text-[10px] font-medium opacity-70">{count}</span>
+                          </button>
+                        ))}
+                      </div>
+                      {shareableCategory ? (
+                        <ShareButton
+                          title={CATEGORY_LABELS[shareableCategory]}
+                          text={
+                            city && !nationwide
+                              ? `Mira las solicitudes de ${CATEGORY_LABELS[shareableCategory].toLowerCase()} en ${city.name} en Pereira Unida.`
+                              : `Mira las solicitudes de ${CATEGORY_LABELS[shareableCategory].toLowerCase()} en Pereira Unida.`
+                          }
+                          url={listShareUrl(shareableCategory, nationwide ? undefined : city.id)}
+                          label={`Compartir ${CATEGORY_LABELS[shareableCategory]}`}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
+                        />
+                      ) : null}
                     </div>
                     {nationwide && departmentCounts.length > 0 ? (
                       <div className="no-scrollbar mb-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
@@ -1348,6 +1495,16 @@ export default function HomeClient({
                     />
                   </div>
                 )}
+                {!isSearching && category === "todos" && externalRequests.length > 0 ? (
+                  <div className="mt-2 space-y-2 p-0.5">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      También piden ayuda · {externalRequests.length}
+                    </p>
+                    {externalRequests.map((ayuda) => (
+                      <ExternalAyudaCard key={ayuda.id} ayuda={ayuda} />
+                    ))}
+                  </div>
+                ) : null}
               </>
             )}
           </div>

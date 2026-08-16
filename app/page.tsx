@@ -5,7 +5,17 @@ import HomeClient from "@/components/HomeClient";
 export const revalidate = 20;
 
 export default async function Home() {
-  const { reports, points, roads, offers, rentals, error } = await getHomeData();
+  const {
+    reports,
+    points,
+    roads,
+    offers,
+    rentals,
+    externalCentros,
+    externalAyudas,
+    externalAfectaciones,
+    error,
+  } = await getHomeData();
 
   return (
     <HomeClient
@@ -14,6 +24,9 @@ export default async function Home() {
       initialRoads={roads}
       initialOffers={offers}
       initialRentals={rentals}
+      initialExternalCentros={externalCentros}
+      initialExternalAyudas={externalAyudas}
+      initialExternalAfectaciones={externalAfectaciones}
       dataError={error}
     />
   );

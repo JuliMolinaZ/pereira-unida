@@ -15,8 +15,9 @@ import {
 import { createCollectionPoint, type ActionResult } from "@/app/actions";
 import { reverseGeocode } from "@/lib/geocode";
 import { cn, googleMapsUrl } from "@/lib/utils";
-import { MUNICIPALITIES, type CollectionPoint, type Municipality } from "@/lib/types";
+import { MUNICIPALITIES, type CollectionPoint, type ExternalCentro, type Municipality } from "@/lib/types";
 import { isRisaraldaMetro, type AppCity } from "@/lib/regions-core";
+import FuenteBadge from "./FuenteBadge";
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,
@@ -25,6 +26,7 @@ const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
 
 interface CollectionPointsProps {
   points: CollectionPoint[];
+  externalCentros?: ExternalCentro[];
   city?: AppCity;
 }
 
@@ -49,7 +51,7 @@ const FIELD_CLASS =
   "w-full rounded-2xl bg-black/5 px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-soft/60 focus:ring-2 focus:ring-forest/30 dark:bg-white/10";
 const LABEL_CLASS = "mb-1 block text-[12px] font-medium text-ink-soft";
 
-export default function CollectionPoints({ points, city }: CollectionPointsProps) {
+export default function CollectionPoints({ points, externalCentros = [], city }: CollectionPointsProps) {
   const [allPoints, setAllPoints] = useState<CollectionPoint[]>(points);
   const [prevPoints, setPrevPoints] = useState(points);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
@@ -65,6 +67,14 @@ export default function CollectionPoints({ points, city }: CollectionPointsProps
         ? allPoints
         : allPoints.filter((p) => p.municipality === municipality),
     [allPoints, municipality]
+  );
+
+  const filteredExternalCentros = useMemo(
+    () =>
+      municipality === "todos"
+        ? externalCentros
+        : externalCentros.filter((c) => c.municipality === municipality),
+    [externalCentros, municipality]
   );
 
   return (
@@ -98,16 +108,69 @@ export default function CollectionPoints({ points, city }: CollectionPointsProps
         <p className="mb-2 text-[13px] font-medium text-ink-soft">Acopio en {city.name}</p>
       )}
 
-      {filteredPoints.length === 0 ? (
+      {filteredPoints.length === 0 && filteredExternalCentros.length === 0 ? (
         <div className="mt-2 rounded-[22px] bg-black/5 px-4 py-8 text-center dark:bg-white/5">
           <p className="text-[15px] font-medium text-ink-soft">
-            {allPoints.length === 0
+            {allPoints.length === 0 && externalCentros.length === 0
               ? "Aún no hay centros de acopio oficiales registrados."
               : "No hay centros de acopio para este municipio todavía."}
           </p>
         </div>
       ) : (
         <div className="space-y-3">
+          {filteredExternalCentros.map((centro) => (
+            <article key={centro.id} className="glass overflow-hidden rounded-[22px] p-3">
+              <div className="flex items-center gap-1.5">
+                <Package className="h-3.5 w-3.5 shrink-0 text-ink-soft" aria-hidden="true" />
+                <p className="text-[12px] font-medium text-ink-soft">Punto de acopio</p>
+                <div className="ml-auto flex items-center gap-1.5">
+                  {!centro.abierto ? (
+                    <span className="rounded-full bg-black/10 px-2 py-0.5 text-[11px] font-medium text-ink-soft">
+                      Cerrado
+                    </span>
+                  ) : null}
+                  <FuenteBadge fuente="ayudas_pereira" />
+                </div>
+              </div>
+              <h3 className="mt-0.5 line-clamp-2 text-[17px] leading-snug font-semibold text-ink">
+                {centro.nombre}
+              </h3>
+
+              {centro.direccion ? (
+                <p className="mt-1 flex items-center gap-1 text-[13px] text-ink-soft">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="line-clamp-1">{centro.direccion}</span>
+                </p>
+              ) : null}
+
+              {centro.necesidades.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {centro.necesidades.slice(0, 6).map((n, i) => (
+                    <span
+                      key={`${centro.id}-${i}`}
+                      className="rounded-full bg-black/5 px-2.5 py-1 text-[11px] font-medium text-ink-soft dark:bg-white/10"
+                    >
+                      {n.categoria}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              {googleMapsUrl(centro.lat, centro.lng) ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <a
+                    href={googleMapsUrl(centro.lat, centro.lng) ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-black/5 px-3 text-[13px] font-medium text-ink dark:bg-white/10"
+                  >
+                    <Navigation className="h-4 w-4" aria-hidden="true" />
+                    Cómo llegar
+                  </a>
+                </div>
+              ) : null}
+            </article>
+          ))}
           {filteredPoints.map((point) => (
             <article key={point.id} className="glass overflow-hidden rounded-[22px] p-3">
               <div className="flex items-center gap-1.5">

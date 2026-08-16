@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { scheduleExternalSync } from "@/lib/externalSync";
 import {
   createServerSupabaseClient,
   tryCreateServerSupabaseClient,
@@ -19,6 +21,9 @@ import {
   type ClosedRoadStatus,
   type CollectionPoint,
   type Comment,
+  type ExternalAfectacion,
+  type ExternalAyuda,
+  type ExternalCentro,
   type HomeData,
   type HelpOffer,
   type HelpOfferStatus,
@@ -175,6 +180,9 @@ const EMPTY_HOME = {
   roads: [] as ClosedRoad[],
   offers: [] as HelpOffer[],
   rentals: [] as Rental[],
+  externalCentros: [] as ExternalCentro[],
+  externalAyudas: [] as ExternalAyuda[],
+  externalAfectaciones: [] as ExternalAfectacion[],
 };
 
 export interface ActionResult<T = void> {
@@ -842,6 +850,14 @@ export async function getHomeData(
     return { ...EMPTY_HOME, error: sb.error };
   }
 
+  // Dispara la sincronización de fuentes externas en segundo plano, sin
+  // demorar esta respuesta. El candado en external_sync_state hace que de
+  // los cientos de visitas que llaman getHomeData(), solo una cada pocos
+  // minutos haga trabajo real (ver lib/externalSync.ts).
+  after(() => {
+    void scheduleExternalSync();
+  });
+
   const applyZone = <T extends { eq: (col: string, val: string) => T }>(
     query: T,
     withDepartment: boolean
@@ -894,17 +910,24 @@ export async function getHomeData(
       return withComments;
     };
 
-    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes] = await Promise.all([
-      loadReports(sb.client, {
-        department: zone.department,
-        municipality: zone.municipality,
-        limit: zone.department ? 180 : 400,
-      }),
-      loadSide("collection_points", "name", true),
-      loadSide("closed_roads", "created_at", false),
-      loadSide("help_offers", "created_at", false),
-      loadRentals(),
-    ]);
+    const loadExternal = async (table: "external_centros" | "external_ayudas" | "external_afectaciones") =>
+      sb.client!.from(table).select("*").order("synced_at", { ascending: false });
+
+    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes, externalCentrosRes, externalAyudasRes, externalAfectacionesRes] =
+      await Promise.all([
+        loadReports(sb.client, {
+          department: zone.department,
+          municipality: zone.municipality,
+          limit: zone.department ? 180 : 400,
+        }),
+        loadSide("collection_points", "name", true),
+        loadSide("closed_roads", "created_at", false),
+        loadSide("help_offers", "created_at", false),
+        loadRentals(),
+        loadExternal("external_centros"),
+        loadExternal("external_ayudas"),
+        loadExternal("external_afectaciones"),
+      ]);
 
     const reports = reportsPack.rows;
     const points = (pointsRes.data ?? []) as CollectionPoint[];
@@ -918,6 +941,19 @@ export async function getHomeData(
       : ((rentalsRes.data ?? []) as Record<string, unknown>[]).map((row) =>
           normalizeRental(row as unknown as Rental & { rental_comments?: unknown })
         );
+    // Fuentes externas: opcionales y aditivas. Si la migración todavía no se
+    // aplicó (tabla inexistente) o hay un hiccup puntual, no tumban la home
+    // ni el mensaje de error — simplemente no aparecen hasta que se resuelva.
+    const externalCentros = externalCentrosRes.error ? [] : ((externalCentrosRes.data ?? []) as ExternalCentro[]);
+    const externalAyudas = externalAyudasRes.error ? [] : ((externalAyudasRes.data ?? []) as ExternalAyuda[]);
+    const externalAfectaciones = externalAfectacionesRes.error
+      ? []
+      : ((externalAfectacionesRes.data ?? []) as ExternalAfectacion[]);
+    if (externalCentrosRes.error) console.error("getHomeData external_centros:", externalCentrosRes.error.message);
+    if (externalAyudasRes.error) console.error("getHomeData external_ayudas:", externalAyudasRes.error.message);
+    if (externalAfectacionesRes.error)
+      console.error("getHomeData external_afectaciones:", externalAfectacionesRes.error.message);
+
     const rawError =
       reportsPack.error ??
       pointsRes.error?.message ??
@@ -928,10 +964,30 @@ export async function getHomeData(
 
     if (rawError) {
       console.error("getHomeData error:", rawError);
-      return { reports, points, roads, offers, rentals, error: classifyHomeDataError(rawError) };
+      return {
+        reports,
+        points,
+        roads,
+        offers,
+        rentals,
+        externalCentros,
+        externalAyudas,
+        externalAfectaciones,
+        error: classifyHomeDataError(rawError),
+      };
     }
 
-    return { reports, points, roads, offers, rentals, error: null };
+    return {
+      reports,
+      points,
+      roads,
+      offers,
+      rentals,
+      externalCentros,
+      externalAyudas,
+      externalAfectaciones,
+      error: null,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("getHomeData error:", message);
