@@ -24,6 +24,7 @@ import {
   rememberMyRentalId,
 } from "@/lib/utils";
 import ShareButton from "./ShareButton";
+import FuenteBadge from "./FuenteBadge";
 import {
   CATEGORY_LABELS,
   CLOSED_ROAD_REASON_LABELS,
@@ -992,6 +993,9 @@ export default function HomeClient({
             roads={isRentalsView && !isSearching ? [] : mapRoads}
             places={isSearching ? mapPlaces : []}
             rentals={mapRentals}
+            externalCentros={isRentalsView && !isSearching ? [] : externalCentros}
+            externalAyudas={isRentalsView && !isSearching ? [] : externalAyudas}
+            externalAfectaciones={isRentalsView && !isSearching ? [] : externalAfectaciones}
             fitSearchResults={isSearching && !selectedPlaceId}
             fitRentals={isRentalsView && !isSearching && !selectedRentalId}
             selectedReportId={selectedReportId}
@@ -1151,7 +1155,12 @@ export default function HomeClient({
                   <>
                     {mapRoads.map((road) => (
                       <article key={road.id} className="rounded-2xl px-2 py-2">
-                        <p className="text-[13px] font-semibold text-ink">{road.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[13px] font-semibold text-ink">{road.name}</p>
+                          <span className="ml-auto">
+                            <FuenteBadge fuente="pereira_unida" />
+                          </span>
+                        </div>
                         <p className="text-[11px] text-ink-soft">
                           {CLOSED_ROAD_REASON_LABELS[road.reason]}
                           {road.note ? ` · ${road.note}` : ""}

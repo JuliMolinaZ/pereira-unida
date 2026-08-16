@@ -5,13 +5,14 @@ import * as maplibregl from "maplibre-gl";
 import { type StyleSpecification } from "maplibre-gl";
 import Map, { Layer, Marker, Popup, Source, type MapRef } from "react-map-gl/maplibre";
 import Supercluster, { type ClusterFeature, type PointFeature } from "supercluster";
-import { Locate, Navigation } from "lucide-react";
+import { Locate, MessageCircle, Navigation } from "lucide-react";
 import SupportFab from "./SupportFab";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ACOPIO_COLOR,
   CATEGORY_EMOJI,
   CATEGORY_LABELS,
+  EXTERNAL_FUENTE_COLORS,
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
   RENTAL_COLOR,
@@ -24,6 +25,9 @@ import {
   pinColorForReport,
   type ClosedRoad,
   type CollectionPoint,
+  type ExternalAfectacion,
+  type ExternalAyuda,
+  type ExternalCentro,
   type Rental,
   type Report,
 } from "@/lib/types";
@@ -33,8 +37,20 @@ import {
   PLACE_KIND_LABEL,
   type MapPlace,
 } from "@/lib/places";
-import { cn, googleMapsUrl } from "@/lib/utils";
+import { cn, googleMapsUrl, toWhatsAppNumber } from "@/lib/utils";
 import type { GeoBBox } from "@/lib/regions-core";
+import FuenteBadge from "./FuenteBadge";
+
+const AFECTACION_EMOJI: Record<ExternalAfectacion["tipo"], string> = {
+  road: "🚧",
+  housing: "🏚️",
+  support: "⛺",
+};
+
+const AYUDA_EMOJI: Record<ExternalAyuda["tipo"], string> = {
+  request: "🆘",
+  offer: "🤝",
+};
 
 /** Estilo vectorial libre (OpenFreeMap / OSM). Sin API key. */
 const VECTOR_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -255,6 +271,9 @@ interface ReportsMapProps {
   roads?: ClosedRoad[];
   places?: MapPlace[];
   rentals?: Rental[];
+  externalCentros?: ExternalCentro[];
+  externalAyudas?: ExternalAyuda[];
+  externalAfectaciones?: ExternalAfectacion[];
   fitSearchResults?: boolean;
   fitRentals?: boolean;
   selectedReportId: string | null;
@@ -278,6 +297,9 @@ export default function ReportsMap({
   roads = [],
   places = [],
   rentals = [],
+  externalCentros = [],
+  externalAyudas = [],
+  externalAfectaciones = [],
   fitSearchResults = false,
   fitRentals = false,
   selectedReportId,
@@ -303,6 +325,9 @@ export default function ReportsMap({
   const [openPointId, setOpenPointId] = useState<string | null>(null);
   const [openPlaceId, setOpenPlaceId] = useState<string | null>(null);
   const [openRoadId, setOpenRoadId] = useState<string | null>(null);
+  const [openExternalCentroId, setOpenExternalCentroId] = useState<string | null>(null);
+  const [openExternalAyudaId, setOpenExternalAyudaId] = useState<string | null>(null);
+  const [openExternalAfectacionId, setOpenExternalAfectacionId] = useState<string | null>(null);
 
   const activeRoads = roads.filter(
     (road) => road.status === "cerrada" && Array.isArray(road.path) && road.path.length >= 2
@@ -322,6 +347,18 @@ export default function ReportsMap({
   const geolocatedReports = useMemo(() => reports.filter(hasMapCoords), [reports]);
   const geolocatedPoints = useMemo(() => points.filter(hasMapCoords), [points]);
   const geolocatedRentals = useMemo(() => rentals.filter(hasMapCoords), [rentals]);
+  const geolocatedExternalCentros = useMemo(
+    () => externalCentros.filter(hasMapCoords),
+    [externalCentros]
+  );
+  const geolocatedExternalAyudas = useMemo(
+    () => externalAyudas.filter(hasMapCoords),
+    [externalAyudas]
+  );
+  const geolocatedExternalAfectaciones = useMemo(
+    () => externalAfectaciones.filter(hasMapCoords),
+    [externalAfectaciones]
+  );
   const missingLocationCount = reports.length - geolocatedReports.length;
 
   const [viewport, setViewport] = useState<{ zoom: number; bounds: [number, number, number, number] }>(
@@ -363,13 +400,67 @@ export default function ReportsMap({
     [geolocatedRentals]
   );
 
+  // Puntos de acopio propios + centros de "Ayudas Pereira" agrupados juntos:
+  // son el mismo tipo de lugar en el mapa, solo cambia quién los publicó.
+  const acopioForCluster = useMemo(
+    () => [
+      ...geolocatedPoints.map((p) => ({ id: p.id, lat: Number(p.lat), lng: Number(p.lng) })),
+      ...geolocatedExternalCentros.map((c) => ({ id: c.id, lat: Number(c.lat), lng: Number(c.lng) })),
+    ],
+    [geolocatedPoints, geolocatedExternalCentros]
+  );
+  const acopioClusters = useMapClusters(acopioForCluster, viewport, 56);
+  const pointsById = useMemo(
+    () => new globalThis.Map(geolocatedPoints.map((p) => [p.id, p])),
+    [geolocatedPoints]
+  );
+  const externalCentrosById = useMemo(
+    () => new globalThis.Map(geolocatedExternalCentros.map((c) => [c.id, c])),
+    [geolocatedExternalCentros]
+  );
+
+  const ayudasForCluster = useMemo(
+    () =>
+      geolocatedExternalAyudas.map((a) => ({ id: a.id, lat: Number(a.lat), lng: Number(a.lng) })),
+    [geolocatedExternalAyudas]
+  );
+  const ayudaClusters = useMapClusters(ayudasForCluster, viewport, 56);
+  const externalAyudasById = useMemo(
+    () => new globalThis.Map(geolocatedExternalAyudas.map((a) => [a.id, a])),
+    [geolocatedExternalAyudas]
+  );
+
+  const afectacionesForCluster = useMemo(
+    () =>
+      geolocatedExternalAfectaciones.map((a) => ({
+        id: a.id,
+        lat: Number(a.lat),
+        lng: Number(a.lng),
+      })),
+    [geolocatedExternalAfectaciones]
+  );
+  const afectacionClusters = useMapClusters(afectacionesForCluster, viewport, 56);
+  const externalAfectacionesById = useMemo(
+    () => new globalThis.Map(geolocatedExternalAfectaciones.map((a) => [a.id, a])),
+    [geolocatedExternalAfectaciones]
+  );
+
   const selectedReport = geolocatedReports.find((r) => r.id === selectedReportId);
   const selectedRental = geolocatedRentals.find((item) => item.id === selectedRentalId);
   const openPoint = geolocatedPoints.find((p) => p.id === openPointId);
+  const openExternalCentro = externalCentrosById.get(openExternalCentroId ?? "") ?? null;
+  const openExternalAyuda = externalAyudasById.get(openExternalAyudaId ?? "") ?? null;
+  const openExternalAfectacion = externalAfectacionesById.get(openExternalAfectacionId ?? "") ?? null;
   const activePlaceId = selectedPlaceId ?? openPlaceId;
   const openPlace = places.find((p) => p.id === activePlaceId) ?? null;
   const pointMapsHref = openPoint ? googleMapsUrl(openPoint.lat, openPoint.lng) : null;
   const placeMapsHref = openPlace ? googleMapsUrl(openPlace.lat, openPlace.lng) : null;
+  const openAyudaWhatsAppNumber = openExternalAyuda?.contact_whatsapp
+    ? toWhatsAppNumber(openExternalAyuda.contact_whatsapp)
+    : null;
+  const openAyudaWhatsAppHref = openAyudaWhatsAppNumber
+    ? `https://wa.me/${openAyudaWhatsAppNumber}?text=${encodeURIComponent(`Hola, vi "${openExternalAyuda?.title}" en Pereira Unida (vía Corag) y quiero ayudar.`)}`
+    : null;
   const openRoad = activeRoads.find((road) => road.id === openRoadId) ?? null;
   const roadPopupPoint = openRoad?.path[Math.floor(openRoad.path.length / 2)] ?? null;
 
@@ -634,29 +725,187 @@ export default function ReportsMap({
           );
         })}
 
-        {geolocatedPoints.map((point) => (
-          <Marker
-            key={point.id}
-            latitude={Number(point.lat)}
-            longitude={Number(point.lng)}
-            anchor="bottom"
-            offset={[0, 0]}
-            style={{ zIndex: point.id === openPointId ? 2 : 1 }}
-            onClick={(e) => {
-              e.originalEvent.stopPropagation();
-              setOpenPlaceId(null);
-              onSelectPlace?.(null);
-              setOpenPointId(point.id);
-            }}
-          >
-            <MapPinMarker
-              emoji="📦"
-              color={ACOPIO_COLOR}
-              selected={point.id === openPointId}
-              label={`Punto de acopio: ${point.name}`}
-            />
-          </Marker>
-        ))}
+        {acopioClusters.features.map((feature) => {
+          const [lng, lat] = feature.geometry.coordinates;
+          if (isCluster(feature)) {
+            const clusterId = feature.properties.cluster_id;
+            const count = feature.properties.point_count;
+            return (
+              <Marker key={`acopio-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
+                <ClusterMarker
+                  count={count}
+                  color={ACOPIO_COLOR}
+                  onClick={() => {
+                    const map = mapRef.current;
+                    if (!map) return;
+                    const targetZoom = Math.min(
+                      acopioClusters.index.getClusterExpansionZoom(clusterId),
+                      16
+                    );
+                    map.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 500 });
+                  }}
+                />
+              </Marker>
+            );
+          }
+          const point = pointsById.get(feature.properties.id);
+          if (point) {
+            return (
+              <Marker
+                key={point.id}
+                latitude={Number(point.lat)}
+                longitude={Number(point.lng)}
+                anchor="bottom"
+                offset={[0, 0]}
+                style={{ zIndex: point.id === openPointId ? 2 : 1 }}
+                onClick={(e) => {
+                  e.originalEvent.stopPropagation();
+                  setOpenPlaceId(null);
+                  setOpenExternalCentroId(null);
+                  onSelectPlace?.(null);
+                  setOpenPointId(point.id);
+                }}
+              >
+                <MapPinMarker
+                  emoji="📦"
+                  color={ACOPIO_COLOR}
+                  selected={point.id === openPointId}
+                  label={`Punto de acopio: ${point.name}`}
+                />
+              </Marker>
+            );
+          }
+          const centro = externalCentrosById.get(feature.properties.id);
+          if (!centro) return null;
+          return (
+            <Marker
+              key={centro.id}
+              latitude={Number(centro.lat)}
+              longitude={Number(centro.lng)}
+              anchor="bottom"
+              offset={[0, 0]}
+              style={{ zIndex: centro.id === openExternalCentroId ? 2 : 1 }}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setOpenPointId(null);
+                setOpenPlaceId(null);
+                onSelectPlace?.(null);
+                setOpenExternalCentroId(centro.id);
+              }}
+            >
+              <MapPinMarker
+                emoji="📦"
+                color={EXTERNAL_FUENTE_COLORS.ayudas_pereira}
+                selected={centro.id === openExternalCentroId}
+                dimmed={!centro.abierto}
+                label={`Punto de acopio (Ayudas Pereira): ${centro.nombre}`}
+              />
+            </Marker>
+          );
+        })}
+
+        {ayudaClusters.features.map((feature) => {
+          const [lng, lat] = feature.geometry.coordinates;
+          if (isCluster(feature)) {
+            const clusterId = feature.properties.cluster_id;
+            const count = feature.properties.point_count;
+            return (
+              <Marker key={`ayuda-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
+                <ClusterMarker
+                  count={count}
+                  color={EXTERNAL_FUENTE_COLORS.corag}
+                  onClick={() => {
+                    const map = mapRef.current;
+                    if (!map) return;
+                    const targetZoom = Math.min(
+                      ayudaClusters.index.getClusterExpansionZoom(clusterId),
+                      16
+                    );
+                    map.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 500 });
+                  }}
+                />
+              </Marker>
+            );
+          }
+          const ayuda = externalAyudasById.get(feature.properties.id);
+          if (!ayuda) return null;
+          return (
+            <Marker
+              key={ayuda.id}
+              latitude={Number(ayuda.lat)}
+              longitude={Number(ayuda.lng)}
+              anchor="bottom"
+              offset={[0, 0]}
+              style={{ zIndex: ayuda.id === openExternalAyudaId ? 2 : 1 }}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setOpenPointId(null);
+                setOpenPlaceId(null);
+                onSelectPlace?.(null);
+                setOpenExternalAyudaId(ayuda.id);
+              }}
+            >
+              <MapPinMarker
+                emoji={AYUDA_EMOJI[ayuda.tipo]}
+                color={EXTERNAL_FUENTE_COLORS.corag}
+                selected={ayuda.id === openExternalAyudaId}
+                label={`${ayuda.tipo === "request" ? "Pide ayuda" : "Ofrece ayuda"} (Corag): ${ayuda.title}`}
+              />
+            </Marker>
+          );
+        })}
+
+        {afectacionClusters.features.map((feature) => {
+          const [lng, lat] = feature.geometry.coordinates;
+          if (isCluster(feature)) {
+            const clusterId = feature.properties.cluster_id;
+            const count = feature.properties.point_count;
+            return (
+              <Marker key={`afectacion-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
+                <ClusterMarker
+                  count={count}
+                  color={EXTERNAL_FUENTE_COLORS.pereira_responde}
+                  onClick={() => {
+                    const map = mapRef.current;
+                    if (!map) return;
+                    const targetZoom = Math.min(
+                      afectacionClusters.index.getClusterExpansionZoom(clusterId),
+                      16
+                    );
+                    map.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 500 });
+                  }}
+                />
+              </Marker>
+            );
+          }
+          const afectacion = externalAfectacionesById.get(feature.properties.id);
+          if (!afectacion) return null;
+          return (
+            <Marker
+              key={afectacion.id}
+              latitude={Number(afectacion.lat)}
+              longitude={Number(afectacion.lng)}
+              anchor="bottom"
+              offset={[0, 0]}
+              style={{ zIndex: afectacion.id === openExternalAfectacionId ? 2 : 1 }}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setOpenPointId(null);
+                setOpenPlaceId(null);
+                onSelectPlace?.(null);
+                setOpenExternalAfectacionId(afectacion.id);
+              }}
+            >
+              <MapPinMarker
+                emoji={AFECTACION_EMOJI[afectacion.tipo]}
+                color={EXTERNAL_FUENTE_COLORS.pereira_responde}
+                selected={afectacion.id === openExternalAfectacionId}
+                dimmed={afectacion.gravedad !== "alta"}
+                label={`Afectación (Pereira Responde): ${afectacion.title}`}
+              />
+            </Marker>
+          );
+        })}
 
         {rentalClusters.features.map((feature) => {
           const [lng, lat] = feature.geometry.coordinates;
@@ -775,6 +1024,142 @@ export default function ReportsMap({
                   Cómo llegar
                 </a>
               ) : null}
+            </div>
+          </Popup>
+        )}
+
+        {openExternalCentro && (
+          <Popup
+            latitude={Number(openExternalCentro.lat)}
+            longitude={Number(openExternalCentro.lng)}
+            anchor="bottom"
+            offset={PIN_POPUP_OFFSET}
+            closeButton={false}
+            closeOnClick={false}
+            onClose={() => setOpenExternalCentroId(null)}
+            className="pereira-map-popup"
+          >
+            <div className="min-w-[170px] space-y-1.5 p-0.5 text-xs text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-wide text-ink-soft uppercase">
+                  Punto de acopio {!openExternalCentro.abierto ? "· Cerrado" : ""}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenExternalCentroId(null)}
+                  className="text-[11px] font-medium text-ink-soft"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <p className="text-[13px] leading-snug font-semibold">{openExternalCentro.nombre}</p>
+              {openExternalCentro.direccion ? (
+                <p className="text-ink-soft">{openExternalCentro.direccion}</p>
+              ) : null}
+              <FuenteBadge fuente="ayudas_pereira" />
+              {googleMapsUrl(openExternalCentro.lat, openExternalCentro.lng) ? (
+                <a
+                  href={googleMapsUrl(openExternalCentro.lat, openExternalCentro.lng) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  <Navigation className="h-3 w-3" aria-hidden="true" />
+                  Cómo llegar
+                </a>
+              ) : null}
+            </div>
+          </Popup>
+        )}
+
+        {openExternalAyuda && (
+          <Popup
+            latitude={Number(openExternalAyuda.lat)}
+            longitude={Number(openExternalAyuda.lng)}
+            anchor="bottom"
+            offset={PIN_POPUP_OFFSET}
+            closeButton={false}
+            closeOnClick={false}
+            onClose={() => setOpenExternalAyudaId(null)}
+            className="pereira-map-popup"
+          >
+            <div className="min-w-[170px] space-y-1.5 p-0.5 text-xs text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-wide text-ink-soft uppercase">
+                  {openExternalAyuda.tipo === "request" ? "Pide ayuda" : "Ofrece ayuda"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenExternalAyudaId(null)}
+                  className="text-[11px] font-medium text-ink-soft"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <p className="text-[13px] leading-snug font-semibold">{openExternalAyuda.title}</p>
+              {openExternalAyuda.address ? (
+                <p className="text-ink-soft">{openExternalAyuda.address}</p>
+              ) : null}
+              <FuenteBadge fuente="corag" />
+              {openAyudaWhatsAppHref ? (
+                <a
+                  href={openAyudaWhatsAppHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded-full bg-[var(--whatsapp)] px-2 py-1.5 text-[11px] font-semibold text-white"
+                >
+                  <MessageCircle className="h-3 w-3" aria-hidden="true" />
+                  WhatsApp
+                </a>
+              ) : null}
+              {openExternalAyuda.public_url ? (
+                <a
+                  href={openExternalAyuda.public_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex w-full items-center justify-center gap-1 rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  Ver en Corag
+                </a>
+              ) : null}
+            </div>
+          </Popup>
+        )}
+
+        {openExternalAfectacion && (
+          <Popup
+            latitude={Number(openExternalAfectacion.lat)}
+            longitude={Number(openExternalAfectacion.lng)}
+            anchor="bottom"
+            offset={PIN_POPUP_OFFSET}
+            closeButton={false}
+            closeOnClick={false}
+            onClose={() => setOpenExternalAfectacionId(null)}
+            className="pereira-map-popup"
+          >
+            <div className="min-w-[170px] space-y-1.5 p-0.5 text-xs text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-wide text-carmine uppercase">
+                  {openExternalAfectacion.tipo === "road" ? "Vía afectada" : "Daño estructural"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenExternalAfectacionId(null)}
+                  className="text-[11px] font-medium text-ink-soft"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <p className="text-[13px] leading-snug font-semibold">{openExternalAfectacion.title}</p>
+              {openExternalAfectacion.nota ? (
+                <p className="text-ink-soft">{openExternalAfectacion.nota}</p>
+              ) : null}
+              {openExternalAfectacion.photo_count > 0 ? (
+                <p className="text-[11px] text-ink-soft">
+                  {openExternalAfectacion.photo_count} foto{openExternalAfectacion.photo_count === 1 ? "" : "s"}
+                </p>
+              ) : null}
+              <FuenteBadge fuente="pereira_responde" />
             </div>
           </Popup>
         )}

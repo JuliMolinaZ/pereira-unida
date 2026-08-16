@@ -1,7 +1,7 @@
-import { EXTERNAL_FUENTE_COLORS, EXTERNAL_FUENTE_LABELS, type ExternalFuente } from "@/lib/types";
+import { EXTERNAL_FUENTE_COLORS, EXTERNAL_FUENTE_LABELS, type MapFuente } from "@/lib/types";
 
-/** Sello de procedencia para datos que vienen de una fuente externa sincronizada. */
-export default function FuenteBadge({ fuente }: { fuente: ExternalFuente }) {
+/** Sello de procedencia: de qué fuente nace este dato (incluida "pereira_unida" para lo propio). */
+export default function FuenteBadge({ fuente }: { fuente: MapFuente }) {
   const color = EXTERNAL_FUENTE_COLORS[fuente];
   return (
     <span

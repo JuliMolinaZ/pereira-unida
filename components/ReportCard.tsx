@@ -5,6 +5,7 @@ import { Loader2, MapPin, MessageCircle, Navigation, Phone } from "lucide-react"
 import { updateReportStatus, confirmReportActive } from "@/app/actions";
 import { formatTimeAgo, googleMapsUrl, reportShareUrl, shareToWhatsApp, cn } from "@/lib/utils";
 import ShareButton from "./ShareButton";
+import FuenteBadge from "./FuenteBadge";
 import {
   CATEGORY_EMOJI,
   CATEGORY_LABELS,
@@ -159,7 +160,10 @@ export default function ReportCard({
           <span className="sr-only">{URGENCY_LABELS[report.urgent_level]} · </span>
           {CATEGORY_EMOJI[report.category]} {CATEGORY_LABELS[report.category]}
         </span>
-        <span className="ml-auto shrink-0 text-[12px] text-ink-soft/70" suppressHydrationWarning>
+        <span className="ml-auto shrink-0">
+          <FuenteBadge fuente="pereira_unida" />
+        </span>
+        <span className="shrink-0 text-[12px] text-ink-soft/70" suppressHydrationWarning>
           {formatTimeAgo(report.last_confirmed_at || report.created_at)}
         </span>
       </div>

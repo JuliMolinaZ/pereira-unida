@@ -427,23 +427,34 @@ export function maskDocumentId(id: string | null): string | null {
  */
 export type ExternalFuente = "ayudas_pereira" | "corag" | "pereira_responde";
 
-export const EXTERNAL_FUENTE_LABELS: Record<ExternalFuente, string> = {
+/** Cualquier fuente mostrable con FuenteBadge, incluida la propia (para dejar
+ * explícito qué nace en Pereira Unida cuando se mezcla con datos externos). */
+export type MapFuente = ExternalFuente | "pereira_unida";
+
+export const EXTERNAL_FUENTE_LABELS: Record<MapFuente, string> = {
   ayudas_pereira: "Ayudas Pereira",
   corag: "Corag",
   pereira_responde: "Pereira Responde",
+  pereira_unida: "Pereira Unida",
 };
 
 /** Mismo espíritu de color que usa el propio agregador (aqui-ayuda): cada fuente con su color de marca. */
-export const EXTERNAL_FUENTE_COLORS: Record<ExternalFuente, string> = {
+export const EXTERNAL_FUENTE_COLORS: Record<MapFuente, string> = {
   ayudas_pereira: "#b8860b",
   corag: "#65a30d",
   pereira_responde: "#dc2626",
+  pereira_unida: "#a61b1b",
 };
 
+/**
+ * Sin `descripcion` a propósito: la UI solo muestra `categoria` (ver
+ * CollectionPoints.tsx), y esa fuente repite el mismo párrafo largo en cada
+ * necesidad del centro — cargarlo triplicaba el peso de la home sin que
+ * nadie lo viera. Ver lib/externalSync.ts.
+ */
 export interface ExternalNecesidad {
   categoria: string;
   prioridad: string;
-  descripcion: string | null;
 }
 
 export interface ExternalCentro {

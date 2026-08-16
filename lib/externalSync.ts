@@ -30,6 +30,13 @@ const STALE_CLAIM_SECONDS = 120;
 
 type Fuente = "ayudas_pereira" | "corag" | "pereira_responde";
 
+/** La tarjeta trunca visualmente a 2 líneas (line-clamp-2); no tiene sentido
+ * transferir un párrafo entero por celular para mostrar solo el principio. */
+function truncate(value: string | null, max: number): string | null {
+  if (!value) return value;
+  return value.length > max ? `${value.slice(0, max).trimEnd()}…` : value;
+}
+
 function ourServiceClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -94,7 +101,7 @@ async function syncAyudasPereira(ourClient: SupabaseClient): Promise<void> {
       .select("id,ciudad_id,nombre,direccion,notas,activo,created_at,lat,lng,foto,abierto")
       .eq("activo", true),
     theirClient.from("ciudades").select("id,nombre,departamento,slug,activa,fusionada_en"),
-    theirClient.from("necesidades").select("id,centro_id,categoria,descripcion,prioridad,estado"),
+    theirClient.from("necesidades").select("id,centro_id,categoria,prioridad,estado"),
   ]);
 
   if (centrosRes.error) throw new Error(`centros: ${centrosRes.error.message}`);
@@ -102,16 +109,21 @@ async function syncAyudasPereira(ourClient: SupabaseClient): Promise<void> {
   const ciudadById = new Map(
     (ciudadesRes.data ?? []).map((c: Record<string, unknown>) => [c.id as string, c])
   );
-  const necesidadesPorCentro = new Map<string, { categoria: string; prioridad: string; descripcion: string | null }[]>();
+  // Deduplicado por categoría: la fuente repite el mismo párrafo de
+  // descripción en cada fila de "necesidades" de un centro (a veces 5-6
+  // veces), y esa descripción no se muestra en ningún lado — solo la
+  // categoría. Guardar las 6 copias triplicaba el peso de la home sin
+  // aportar nada.
+  const necesidadesPorCentro = new Map<string, Map<string, { categoria: string; prioridad: string }>>();
   for (const n of (necesidadesRes.data ?? []) as Record<string, unknown>[]) {
     const centroId = n.centro_id as string;
-    const list = necesidadesPorCentro.get(centroId) ?? [];
-    list.push({
-      categoria: String(n.categoria ?? ""),
-      prioridad: String(n.prioridad ?? "normal"),
-      descripcion: (n.descripcion as string | null) ?? null,
-    });
-    necesidadesPorCentro.set(centroId, list);
+    const categoria = String(n.categoria ?? "");
+    if (!categoria) continue;
+    const porCategoria = necesidadesPorCentro.get(centroId) ?? new Map();
+    if (!porCategoria.has(categoria)) {
+      porCategoria.set(categoria, { categoria, prioridad: String(n.prioridad ?? "normal") });
+    }
+    necesidadesPorCentro.set(centroId, porCategoria);
   }
 
   const rows = ((centrosRes.data ?? []) as Record<string, unknown>[]).map((c) => {
@@ -127,7 +139,7 @@ async function syncAyudasPereira(ourClient: SupabaseClient): Promise<void> {
       lng: (c.lng as number | null) ?? null,
       abierto: Boolean(c.abierto),
       foto: (c.foto as string | null) ?? null,
-      necesidades: necesidadesPorCentro.get(String(c.id)) ?? [],
+      necesidades: [...(necesidadesPorCentro.get(String(c.id))?.values() ?? [])],
       synced_at: new Date().toISOString(),
     };
   });
@@ -162,8 +174,8 @@ async function syncCorag(ourClient: SupabaseClient): Promise<void> {
       fuente: "corag" as const,
       external_id: String(item.id),
       tipo: String(item.type) as "request" | "offer",
-      title: String(item.title ?? "Sin título"),
-      description: (item.description as string | null) ?? null,
+      title: truncate(String(item.title ?? "Sin título"), 140) as string,
+      description: truncate((item.description as string | null) ?? null, 280),
       category: (item.category as string | null) ?? null,
       urgency: (item.urgency as string | null) ?? null,
       status: (item.status as string | null) ?? null,
@@ -214,7 +226,9 @@ async function syncPereiraResponde(ourClient: SupabaseClient): Promise<void> {
     const title = String(r.title ?? "Afectación sin clasificar");
     const areaRaw = typeof r.area === "string" ? r.area.trim() : "";
     const nota =
-      areaRaw && areaRaw !== NOTA_VACIA && areaRaw.toLowerCase() !== title.toLowerCase() ? areaRaw : null;
+      areaRaw && areaRaw !== NOTA_VACIA && areaRaw.toLowerCase() !== title.toLowerCase()
+        ? truncate(areaRaw, 200)
+        : null;
     const photos = Array.isArray(r.photos) ? r.photos : [];
 
     return {

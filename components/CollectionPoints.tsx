@@ -176,9 +176,12 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
               <div className="flex items-center gap-1.5">
                 <Package className="h-3.5 w-3.5 shrink-0 text-ink-soft" aria-hidden="true" />
                 <p className="text-[12px] font-medium text-ink-soft">Punto de acopio</p>
-                <span className="ml-auto rounded-full bg-black/5 px-2.5 py-0.5 text-[11px] font-medium text-ink-soft dark:bg-white/10">
-                  {point.municipality}
-                </span>
+                <div className="ml-auto flex items-center gap-1.5">
+                  <span className="rounded-full bg-black/5 px-2.5 py-0.5 text-[11px] font-medium text-ink-soft dark:bg-white/10">
+                    {point.municipality}
+                  </span>
+                  <FuenteBadge fuente="pereira_unida" />
+                </div>
               </div>
               <h3 className="mt-0.5 line-clamp-2 text-[17px] leading-snug font-semibold text-ink">
                 {point.name}

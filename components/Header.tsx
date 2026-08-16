@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { MapPin, Phone, Search, X } from "lucide-react";
 import BrandMark from "./BrandMark";
+import InstallButton from "./InstallButton";
 import { EMERGENCY_HOTLINES } from "@/lib/emergency";
 import { SUPPORT_INSTAGRAM_URL, SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "@/lib/support";
 
@@ -85,6 +86,8 @@ export default function Header({
             ) : null}
           </span>
         </label>
+
+        <InstallButton />
 
         <div className="relative shrink-0">
           <button

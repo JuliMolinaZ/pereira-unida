@@ -910,8 +910,17 @@ export async function getHomeData(
       return withComments;
     };
 
+    // Tope al peso inicial de la home: estas fuentes son de apoyo, no el
+    // dato principal, y la app se usa con datos móviles limitados (o sin
+    // wifi) en celulares de gama baja. 120 alcanza para lo que se ve al
+    // entrar; el resto llega solo si esa fuente sigue creciendo mucho más.
+    const EXTERNAL_ROW_LIMIT = 120;
     const loadExternal = async (table: "external_centros" | "external_ayudas" | "external_afectaciones") =>
-      sb.client!.from(table).select("*").order("synced_at", { ascending: false });
+      sb.client!
+        .from(table)
+        .select("*")
+        .order("synced_at", { ascending: false })
+        .limit(EXTERNAL_ROW_LIMIT);
 
     const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes, externalCentrosRes, externalAyudasRes, externalAfectacionesRes] =
       await Promise.all([

@@ -6,6 +6,7 @@ import { hideHelpOffer } from "@/app/actions";
 import { cn, formatTimeAgo, listShareUrl, readMyOfferIds, shareToWhatsAppOffer } from "@/lib/utils";
 import ExpandableText from "./ExpandableText";
 import ShareButton from "./ShareButton";
+import FuenteBadge from "./FuenteBadge";
 import {
   HELP_SKILL_COLORS,
   HELP_SKILL_EMOJI,
@@ -219,9 +220,14 @@ function HelpOfferCard({
           {HELP_SKILL_EMOJI[offer.skill]}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-semibold" style={{ color }}>
-            {HELP_SKILL_LABELS[offer.skill]}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[12px] font-semibold" style={{ color }}>
+              {HELP_SKILL_LABELS[offer.skill]}
+            </p>
+            <span className="ml-auto">
+              <FuenteBadge fuente="pereira_unida" />
+            </span>
+          </div>
           <h3 className="mt-0.5 line-clamp-1 text-[17px] leading-snug font-semibold text-ink">
             {offer.full_name}
           </h3>
