@@ -7,6 +7,9 @@ import { isInAppBrowser } from "@/lib/device";
  * Registra el service worker vanilla (public/sw.js). Solo en producción:
  * en dev interferiría con la recarga en caliente de Turbopack.
  * En Instagram/Facebook el WebView no aprovecha el SW y compite por la red.
+ *
+ * No recargamos la página al activar un SW nuevo: en iOS (app instalada)
+ * esa recarga devolvía el shell viejo y volvía a salir Familia.
  */
 export default function PwaRegister() {
   useEffect(() => {
@@ -19,7 +22,7 @@ export default function PwaRegister() {
 
     const register = () => {
       navigator.serviceWorker
-        .register("/sw.js")
+        .register("/sw.js?v=4")
         .then((registration) => {
           registration.update();
           return navigator.serviceWorker.ready;
@@ -29,13 +32,6 @@ export default function PwaRegister() {
           // Registro silencioso: si falla, la app sigue funcionando sin PWA.
         });
     };
-
-    const onControllerChange = () => {
-      if (sessionStorage.getItem("pu-sw-reloaded")) return;
-      sessionStorage.setItem("pu-sw-reloaded", "1");
-      window.location.reload();
-    };
-    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
 
     const schedule = () => {
       if (typeof window.requestIdleCallback === "function") {
@@ -50,7 +46,6 @@ export default function PwaRegister() {
 
     return () => {
       window.removeEventListener("load", schedule);
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       if (idleId && typeof window.cancelIdleCallback === "function") {
         window.cancelIdleCallback(idleId);
       }

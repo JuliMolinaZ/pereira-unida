@@ -61,7 +61,6 @@ export default function ServiceOutageModal({
   city = cityById(DEFAULT_CITY_ID),
   onChangeCity,
 }: ServiceOutageModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [service, setService] = useState<ServiceKind>("energia");
   const [severity, setSeverity] = useState<ServiceOutageSeverity | "">("");
@@ -83,39 +82,16 @@ export default function ServiceOutageModal({
   }, [city]);
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) {
-      try {
-        dialog.showModal();
-      } catch {
-        dialog.setAttribute("open", "");
-      }
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
     }
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    function handleClose() {
-      onClose();
-    }
-    function handleBackdropClick(e: MouseEvent) {
-      if (e.target !== dialog) return;
-      const rect = dialog!.getBoundingClientRect();
-      const insidePanel =
-        e.clientX >= rect.left &&
-        e.clientX <= rect.right &&
-        e.clientY >= rect.top &&
-        e.clientY <= rect.bottom;
-      if (!insidePanel) dialogRef.current?.close();
-    }
-    dialog.addEventListener("close", handleClose);
-    dialog.addEventListener("click", handleBackdropClick);
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      dialog.removeEventListener("close", handleClose);
-      dialog.removeEventListener("click", handleBackdropClick);
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
     };
   }, [open, onClose]);
 
@@ -191,7 +167,7 @@ export default function ServiceOutageModal({
         if (result.success && result.data) {
           onCreated(result.data);
           resetForm();
-          dialogRef.current?.close();
+          onClose();
         }
         return result;
       } catch (err) {
@@ -205,19 +181,27 @@ export default function ServiceOutageModal({
   if (!open) return null;
 
   return (
-    <dialog
-      ref={dialogRef}
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
       aria-labelledby="outage-form-title"
-      className="glass m-0 mt-auto flex w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
     >
-      <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-black/20 dark:bg-white/25" />
-      <div className="flex items-center justify-between px-4 pt-2 pb-2">
+      <button
+        type="button"
+        aria-label="Cerrar"
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
+      <div className="glass relative z-10 flex h-[min(92dvh,100svh)] w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] p-0 text-ink sm:h-[min(88dvh,760px)] sm:rounded-[28px]">
+      <div className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-black/20 dark:bg-white/25" />
+      <div className="flex shrink-0 items-center justify-between px-4 pt-2 pb-2">
         <h2 id="outage-form-title" className="text-[17px] font-semibold text-ink">
           Reportar daño de servicio
         </h2>
         <button
           type="button"
-          onClick={() => dialogRef.current?.close()}
+          onClick={onClose}
           aria-label="Cerrar"
           className="flex h-8 w-8 items-center justify-center rounded-full bg-black/5 text-ink-soft dark:bg-white/10"
         >
@@ -228,7 +212,7 @@ export default function ServiceOutageModal({
       <form
         ref={formRef}
         action={formAction}
-        className="sheet-scroll min-h-0 flex-1 space-y-4 overscroll-contain px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
         <CityBanner city={city} action="servicio" onChange={onChangeCity} />
         <p className="text-[13px] leading-snug text-ink-soft">
@@ -441,6 +425,7 @@ export default function ServiceOutageModal({
           Publicar daño
         </button>
       </form>
-    </dialog>
+      </div>
+    </div>
   );
 }

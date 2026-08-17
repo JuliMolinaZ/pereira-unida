@@ -2,7 +2,7 @@
 // En crisis deja consultables teléfonos de emergencia y direcciones de
 // acopio aunque no haya datos. Reportes en vivo nunca se sirven de caché.
 
-const CACHE_VERSION = "pereiraunida-v3";
+const CACHE_VERSION = "pereiraunida-v4";
 const OFFLINE_URL = "/offline.html";
 const OFFLINE_KIT = "/api/offline-kit";
 const PRECACHE_URLS = [OFFLINE_URL, "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
