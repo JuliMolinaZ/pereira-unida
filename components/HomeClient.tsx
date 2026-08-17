@@ -62,10 +62,8 @@ import FilterBar, {
 import DenseReportList from "./DenseReportList";
 import ReportCardSkeleton from "./ReportCardSkeleton";
 import NotificationsPrompt from "./NotificationsPrompt";
-import SectorFilter from "./SectorFilter";
 import { isInAppBrowser } from "@/lib/device";
 import { isCriticalMedicine } from "@/lib/medicine";
-import { matchesSector, sectorById } from "@/lib/sectors";
 import {
   cityById,
   DEFAULT_CITY_ID,
@@ -253,7 +251,6 @@ export default function HomeClient({
   // propio, para que lo propio sea siempre "lo fuerte" por defecto.
   const [includeExternal, setIncludeExternal] = useState(true);
   const [criticalMedicineOnly, setCriticalMedicineOnly] = useState(false);
-  const [sectorId, setSectorId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [priorityMode, setPriorityMode] = useState(false);
@@ -312,9 +309,6 @@ export default function HomeClient({
     const reportId = fromProp || params?.get("reporte") || null;
     const rentalId = params?.get("arriendo") || null;
     const vista = params?.get("vista") ?? null;
-    const sector = params?.get("sector") ?? null;
-
-    if (sector && sectorById(sector)) setSectorId(sector);
 
     if (!reportId && !rentalId && !isValidVista(vista)) return;
     setAppliedInitialReportId(true);
@@ -737,12 +731,6 @@ export default function HomeClient({
     if (criticalMedicineOnly) {
       base = base.filter((r) => isCriticalMedicine(`${r.title} ${r.description}`));
     }
-    if (sectorId) {
-      const sector = sectorById(sectorId);
-      if (sector) {
-        base = base.filter((r) => matchesSector(r.location_name || "", sector));
-      }
-    }
     if (!isSearching) {
       if (listScope === "activos") base = base.filter((r) => !isClosedStatus(r.status));
       if (listScope === "cerrados") base = base.filter((r) => isClosedStatus(r.status));
@@ -778,7 +766,6 @@ export default function HomeClient({
     timeWindow,
     category,
     criticalMedicineOnly,
-    sectorId,
     isSearching,
     debouncedSearchQuery,
     nationwide,
@@ -1115,10 +1102,6 @@ export default function HomeClient({
             onCriticalMedicineOnlyChange={setCriticalMedicineOnly}
           />
         </div>
-
-        <div className="mt-1.5">
-          <SectorFilter sectorId={sectorId} onSectorChange={setSectorId} />
-        </div>
       </div>
 
       <div
@@ -1335,11 +1318,7 @@ export default function HomeClient({
                               ? `Mira las solicitudes de ${CATEGORY_LABELS[shareableCategory].toLowerCase()} en ${city.name} en Pereira Unida.`
                               : `Mira las solicitudes de ${CATEGORY_LABELS[shareableCategory].toLowerCase()} en Pereira Unida.`
                           }
-                          url={listShareUrl(
-                            shareableCategory,
-                            nationwide ? undefined : city.id,
-                            sectorId
-                          )}
+                          url={listShareUrl(shareableCategory, nationwide ? undefined : city.id)}
                           label={`Compartir ${CATEGORY_LABELS[shareableCategory]}`}
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
                         />

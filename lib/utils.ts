@@ -131,10 +131,9 @@ export function rentalShareUrl(rentalId: string): string {
  * ciudad) para reenviar por grupos de WhatsApp. `vista` es el valor de
  * `CategoryQuickFilter` (arriendos, ofrezco, puntos_acopio…).
  */
-export function listShareUrl(vista: string, cityId?: string, sectorId?: string | null): string {
+export function listShareUrl(vista: string, cityId?: string): string {
   const params = new URLSearchParams({ vista });
   if (cityId) params.set("ciudad", cityId);
-  if (sectorId) params.set("sector", sectorId);
   return `${SITE_URL}/?${params.toString()}`;
 }
 
