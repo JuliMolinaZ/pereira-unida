@@ -1,11 +1,12 @@
 // Service worker vanilla de Pereira Unida (sin next-pwa).
-// En crisis deja consultables teléfonos de emergencia y direcciones de
-// acopio aunque no haya datos. Reportes en vivo nunca se sirven de caché.
+// En crisis deja consultables teléfonos de emergencia. El JS de la app
+// nunca se sirve de caché: si no, la PWA instalada revivía el dock viejo
+// (Familia) después de una actualización.
 
-const CACHE_VERSION = "pereiraunida-v4";
+const CACHE_VERSION = "pereiraunida-v5";
 const OFFLINE_URL = "/offline.html";
 const OFFLINE_KIT = "/api/offline-kit";
-const PRECACHE_URLS = [OFFLINE_URL, "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
+const PRECACHE_URLS = [OFFLINE_URL, "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -16,17 +17,16 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key)))
-      )
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key)))
+    )
   );
-  self.clients.claim();
+  // Sin clients.claim(): en iOS la toma de control recarga el start_url
+  // cacheado y volvía a pintar Familia.
 });
 
 function networkFirst(request) {
-  return fetch(request)
+  return fetch(request, { cache: "no-store" })
     .then((response) => {
       if (response && response.ok) {
         const clone = response.clone();
@@ -49,32 +49,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navegación: red primero. Si no hay red, cae a offline.html con las
-  // líneas de emergencia y, si hay caché, los acopios.
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)));
+    event.respondWith(fetch(request, { cache: "no-store" }).catch(() => caches.match(OFFLINE_URL)));
     return;
   }
 
-  // Assets estáticos versionados de Next (nombre con hash de contenido,
-  // por lo tanto inmutables): cache-first.
-  if (url.pathname.startsWith("/_next/static/")) {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
-          return response;
-        });
-      })
-    );
-    return;
-  }
+  // JS/CSS de Next: la red, nunca el SW. Así no se sirve el chunk de Familia.
 });
 
-// Notificaciones push (nueva solicitud/oferta/arriendo cerca). Con la app
-// cerrada, el navegador despierta el service worker solo para esto.
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -90,8 +72,6 @@ self.addEventListener("push", (event) => {
       badge: "/icon-192.png",
       tag: payload.tag || "pereiraunida",
       renotify: true,
-      // Patrón corto (vibra-pausa-vibra): se siente como un aviso real del
-      // celular, no un ping perdido entre notificaciones de otras apps.
       vibrate: [80, 40, 80],
       data: { url: payload.url || "/" },
       actions: [{ action: "view", title: "Ver en el mapa" }],

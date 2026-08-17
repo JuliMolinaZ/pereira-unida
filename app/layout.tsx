@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Archivo, Fraunces } from "next/font/google";
 import PwaRegister from "@/components/PwaRegister";
 import "./globals.css";
@@ -85,6 +86,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <link rel="preconnect" href="https://tiles.openfreemap.org" />
       <link rel="dns-prefetch" href="https://tiles.openfreemap.org" />
       <body className="min-h-full flex flex-col">
+        <Script id="pu-purge-old-cache" strategy="beforeInteractive">
+          {`try{if("caches"in window){caches.keys().then(function(k){k.forEach(function(n){if(n.indexOf("pereiraunida-v5")!==0)caches.delete(n)})})}}catch(e){}`}
+        </Script>
         {children}
         <PwaRegister />
       </body>

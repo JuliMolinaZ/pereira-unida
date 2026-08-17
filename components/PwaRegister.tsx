@@ -4,12 +4,9 @@ import { useEffect } from "react";
 import { isInAppBrowser } from "@/lib/device";
 
 /**
- * Registra el service worker vanilla (public/sw.js). Solo en producción:
- * en dev interferiría con la recarga en caliente de Turbopack.
- * En Instagram/Facebook el WebView no aprovecha el SW y compite por la red.
- *
- * No recargamos la página al activar un SW nuevo: en iOS (app instalada)
- * esa recarga devolvía el shell viejo y volvía a salir Familia.
+ * Un solo service worker en /sw.js. Si quedó uno registrado con ?v=3/?v=4,
+ * se desregistra: ese era el que recargaba y devolvía el dock de Familia.
+ * Nunca hacemos location.reload() al actualizar.
  */
 export default function PwaRegister() {
   useEffect(() => {
@@ -19,25 +16,41 @@ export default function PwaRegister() {
 
     let idleId = 0;
     let timeoutId = 0;
+    let cancelled = false;
 
-    const register = () => {
-      navigator.serviceWorker
-        .register("/sw.js?v=4")
-        .then((registration) => {
-          registration.update();
-          return navigator.serviceWorker.ready;
-        })
-        .then(() => fetch("/api/offline-kit"))
-        .catch(() => {
-          // Registro silencioso: si falla, la app sigue funcionando sin PWA.
-        });
+    const register = async () => {
+      try {
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs.map((reg) => {
+            const script = reg.active?.scriptURL || reg.waiting?.scriptURL || reg.installing?.scriptURL || "";
+            if (script.includes("?")) return reg.unregister();
+            return Promise.resolve(false);
+          })
+        );
+
+        if (cancelled) return;
+        await navigator.serviceWorker.register("/sw.js");
+        await fetch("/api/offline-kit");
+      } catch {
+        // Registro silencioso: si falla, la app sigue funcionando sin PWA.
+      }
     };
 
     const schedule = () => {
       if (typeof window.requestIdleCallback === "function") {
-        idleId = window.requestIdleCallback(register, { timeout: 2500 });
+        idleId = window.requestIdleCallback(() => {
+          void register();
+        }, { timeout: 2500 });
       } else {
-        timeoutId = window.setTimeout(register, 1500);
+        timeoutId = window.setTimeout(() => {
+          void register();
+        }, 1500);
       }
     };
 
@@ -45,6 +58,7 @@ export default function PwaRegister() {
     else window.addEventListener("load", schedule, { once: true });
 
     return () => {
+      cancelled = true;
       window.removeEventListener("load", schedule);
       if (idleId && typeof window.cancelIdleCallback === "function") {
         window.cancelIdleCallback(idleId);

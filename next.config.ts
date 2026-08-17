@@ -33,10 +33,14 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        source: "/",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
+      {
         // El service worker debe revalidarse siempre: si el navegador lo
         // cachea, las actualizaciones de la app tardarían en propagarse.
         source: "/sw.js",
-        headers: [{ key: "Cache-Control", value: "no-cache" }],
+        headers: [{ key: "Cache-Control", value: "no-store, no-cache, must-revalidate" }],
       },
       {
         source: "/maplibre/:path*.mjs",

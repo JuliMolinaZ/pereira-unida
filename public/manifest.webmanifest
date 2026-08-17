@@ -2,7 +2,7 @@
   "name": "Pereira Unida — Ayuda ciudadana en emergencia",
   "short_name": "Pereira Unida",
   "description": "Coordina y solicita ayuda ciudadana en tiempo real en Pereira y Dosquebradas: necesidades, daños de servicios y puntos de acopio.",
-  "start_url": "/?v=4",
+  "start_url": "/?v=5",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
