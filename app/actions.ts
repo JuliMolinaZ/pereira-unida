@@ -53,6 +53,7 @@ import { deleteSpaceObjects, isSpacesConfigured, uploadSpaceObject } from "@/lib
 import { isPushConfigured, notifySubscribers, type PushTopic } from "@/lib/push";
 import { formatCop, SITE_URL } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
+import { sanitizeFreeText } from "@/lib/sanitize";
 import { DEFAULT_DEPARTMENT, inColombia, isKnownCityName } from "@/lib/regions";
 import { parseMonthlyRent } from "@/lib/rentals";
 
@@ -547,8 +548,8 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 export async function createReport(
   formData: FormData
 ): Promise<ActionResult<Report>> {
-  const title = String(formData.get("title") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim();
+  const title = sanitizeFreeText(String(formData.get("title") ?? "").trim());
+  const description = sanitizeFreeText(String(formData.get("description") ?? "").trim());
   const category = String(formData.get("category") ?? "") as ReportCategory;
   const urgentLevel = String(
     formData.get("urgent_level") ?? "moderado"
@@ -724,7 +725,7 @@ export async function addComment(
   author: string,
   content: string
 ): Promise<ActionResult<Comment>> {
-  const trimmedContent = content.trim().slice(0, 280);
+  const trimmedContent = sanitizeFreeText(content.trim().slice(0, 280));
   const trimmedAuthor = author.trim() || "Anónimo";
 
   if (!reportId) return { success: false, error: "reportId es requerido." };
@@ -1428,7 +1429,7 @@ export async function createHelpOffer(
 ): Promise<ActionResult<HelpOffer>> {
   const fullName = String(formData.get("full_name") ?? "").trim();
   const skill = String(formData.get("skill") ?? "") as HelpSkill;
-  const description = String(formData.get("description") ?? "").trim();
+  const description = sanitizeFreeText(String(formData.get("description") ?? "").trim());
   const phone = String(formData.get("phone") ?? "").trim();
   const place = parseCityFields(formData);
   if ("error" in place) return { success: false, error: place.error };
@@ -2004,7 +2005,7 @@ export async function addRentalComment(
   author: string,
   content: string
 ): Promise<ActionResult<Comment>> {
-  const trimmedContent = content.trim().slice(0, 280);
+  const trimmedContent = sanitizeFreeText(content.trim().slice(0, 280));
   const trimmedAuthor = author.trim() || "Anónimo";
   if (!UUID_RE.test(rentalId)) return { success: false, error: "Vivienda inválida." };
   if (!trimmedContent) return { success: false, error: "El comentario no puede estar vacío." };
