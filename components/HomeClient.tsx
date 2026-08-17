@@ -62,6 +62,7 @@ import FilterBar, {
 import DenseReportList from "./DenseReportList";
 import ReportCardSkeleton from "./ReportCardSkeleton";
 import NotificationsPrompt from "./NotificationsPrompt";
+import OfflineBanner from "./OfflineBanner";
 import { isInAppBrowser } from "@/lib/device";
 import { isCriticalMedicine } from "@/lib/medicine";
 import {
@@ -1072,6 +1073,8 @@ export default function HomeClient({
           municipality={zoneQueryFor(city).municipality ?? null}
           department={zoneQueryFor(city).department ?? null}
         />
+
+        <OfflineBanner />
 
         {dataError && (
           <div className="glass mt-2 rounded-[22px] px-4 py-3">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { AlertTriangle, Loader2, MapPin, MessageCircle, Navigation, Phone } from "lucide-react";
+import { AlertTriangle, Loader2, MapPin, MessageCircle, Navigation, Phone, Share2 } from "lucide-react";
 import { updateReportStatus, confirmReportActive } from "@/app/actions";
 import { formatTimeAgo, googleMapsUrl, reportShareUrl, shareToWhatsApp, cn } from "@/lib/utils";
 import { findCriticalMedicineTerms } from "@/lib/medicine";
@@ -116,15 +116,26 @@ export default function ReportCard({
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end justify-center gap-1">
-            <span
-              className={cn(
-                "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold",
-                comments > 0 ? "bg-carmine text-white" : "bg-black/10 text-ink-soft"
-              )}
-              aria-label={`${comments} ${comments === 1 ? "nota" : "notas"}`}
-            >
-              {comments > 99 ? "99+" : comments}
-            </span>
+            <div className="flex items-center gap-1">
+              <ShareButton
+                title={report.title}
+                text={`${CATEGORY_LABELS[report.category]}: ${report.title} — ${report.location_name}, ${report.municipality}. Pereira Unida.`}
+                url={reportShareUrl(report.id)}
+                label="Compartir esta solicitud"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-black/10 text-ink-soft dark:bg-white/10"
+              >
+                <Share2 className="h-3 w-3" aria-hidden="true" />
+              </ShareButton>
+              <span
+                className={cn(
+                  "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                  comments > 0 ? "bg-carmine text-white" : "bg-black/10 text-ink-soft"
+                )}
+                aria-label={`${comments} ${comments === 1 ? "nota" : "notas"}`}
+              >
+                {comments > 99 ? "99+" : comments}
+              </span>
+            </div>
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap",
