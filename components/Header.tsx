@@ -4,6 +4,7 @@ import { useState } from "react";
 import { MapPin, Phone, Search, X } from "lucide-react";
 import BrandMark from "./BrandMark";
 import InstallButton from "./InstallButton";
+import NotificationsOptIn from "./NotificationsOptIn";
 import { EMERGENCY_HOTLINES } from "@/lib/emergency";
 import { SUPPORT_INSTAGRAM_URL, SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "@/lib/support";
 
@@ -14,6 +15,8 @@ interface HeaderProps {
   onSearchQueryChange: (value: string) => void;
   cityName: string;
   onCityClick: () => void;
+  municipality?: string | null;
+  department?: string | null;
 }
 
 export default function Header({
@@ -23,6 +26,8 @@ export default function Header({
   onSearchQueryChange,
   cityName,
   onCityClick,
+  municipality = null,
+  department = null,
 }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -88,6 +93,7 @@ export default function Header({
         </label>
 
         <InstallButton />
+        <NotificationsOptIn municipality={municipality} department={department} />
 
         <div className="relative shrink-0">
           <button

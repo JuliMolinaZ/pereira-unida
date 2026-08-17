@@ -10,9 +10,10 @@ import {
   MapPin,
   Navigation,
   Package,
+  Pencil,
   Phone,
 } from "lucide-react";
-import { createCollectionPoint, type ActionResult } from "@/app/actions";
+import { createCollectionPoint, updateCollectionPointBalance, type ActionResult } from "@/app/actions";
 import { reverseGeocode } from "@/lib/geocode";
 import { cn, googleMapsUrl } from "@/lib/utils";
 import { MUNICIPALITIES, type CollectionPoint, type ExternalCentro, type Municipality } from "@/lib/types";
@@ -59,6 +60,10 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
   if (points !== prevPoints) {
     setPrevPoints(points);
     setAllPoints(points);
+  }
+
+  function handlePointUpdated(updated: CollectionPoint) {
+    setAllPoints((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   }
 
   const filteredPoints = useMemo(
@@ -129,7 +134,7 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
                       Cerrado
                     </span>
                   ) : null}
-                  <FuenteBadge fuente="ayudas_pereira" />
+                  <FuenteBadge fuente={centro.fuente} />
                 </div>
               </div>
               <h3 className="mt-0.5 line-clamp-2 text-[17px] leading-snug font-semibold text-ink">
@@ -199,18 +204,38 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
                 </p>
               ) : null}
 
-              {point.supplies_needed.length > 0 ? (
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {point.supplies_needed.map((supply) => (
-                    <span
-                      key={supply}
-                      className="rounded-full bg-black/5 px-2.5 py-1 text-[11px] font-medium text-ink-soft dark:bg-white/10"
-                    >
-                      {supply}
-                    </span>
-                  ))}
+              {point.supplies_needed.length > 0 || (point.supplies_surplus ?? []).length > 0 ? (
+                <div className="mt-1.5 space-y-1">
+                  {point.supplies_needed.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-semibold text-carmine">Falta:</span>
+                      {point.supplies_needed.map((supply) => (
+                        <span
+                          key={supply}
+                          className="rounded-full bg-carmine/10 px-2.5 py-1 text-[11px] font-medium text-carmine"
+                        >
+                          {supply}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {(point.supplies_surplus ?? []).length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-semibold text-forest">Sobra:</span>
+                      {point.supplies_surplus.map((supply) => (
+                        <span
+                          key={supply}
+                          className="rounded-full bg-forest/10 px-2.5 py-1 text-[11px] font-medium text-forest"
+                        >
+                          {supply}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
+
+              <BalanceEditor point={point} onUpdated={handlePointUpdated} />
 
               <div className="mt-2 flex items-center gap-2">
                 {googleMapsUrl(point.lat, point.lng) ? (
@@ -244,6 +269,101 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Toggle inline para actualizar qué le falta/sobra a un centro propio, sin
+ * tener que borrarlo y publicarlo de nuevo. Mismo modelo de confianza que
+ * crear un centro: PIN compartido, sin cuentas — se pide de nuevo cada vez
+ * (no se guarda en el navegador).
+ */
+function BalanceEditor({
+  point,
+  onUpdated,
+}: {
+  point: CollectionPoint;
+  onUpdated: (point: CollectionPoint) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [needed, setNeeded] = useState(point.supplies_needed.join(", "));
+  const [surplus, setSurplus] = useState((point.supplies_surplus ?? []).join(", "));
+  const [pin, setPin] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-ink-soft"
+      >
+        <Pencil className="h-3 w-3" aria-hidden="true" />
+        Actualizar falta/sobra
+      </button>
+    );
+  }
+
+  async function handleSave() {
+    setPending(true);
+    setError(null);
+    const result = await updateCollectionPointBalance(
+      point.id,
+      pin,
+      needed.split(",").map((s) => s.trim()).filter(Boolean),
+      surplus.split(",").map((s) => s.trim()).filter(Boolean)
+    );
+    setPending(false);
+    if (result.success && result.data) {
+      onUpdated(result.data);
+      setOpen(false);
+      setPin("");
+    } else {
+      setError(result.error ?? "No se pudo actualizar.");
+    }
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5 rounded-2xl bg-black/5 p-2.5 dark:bg-white/10">
+      <input
+        value={needed}
+        onChange={(e) => setNeeded(e.target.value)}
+        placeholder="Qué falta (separado por coma)"
+        className={FIELD_CLASS}
+      />
+      <input
+        value={surplus}
+        onChange={(e) => setSurplus(e.target.value)}
+        placeholder="Qué sobra (separado por coma)"
+        className={FIELD_CLASS}
+      />
+      <input
+        value={pin}
+        onChange={(e) => setPin(e.target.value)}
+        type="password"
+        placeholder="PIN"
+        className={FIELD_CLASS}
+      />
+      {error ? <p className="text-[11px] font-medium text-carmine">{error}</p> : null}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="flex-1 rounded-full bg-black/5 py-1.5 text-[12px] font-medium text-ink dark:bg-white/10"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={pending || !pin}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-forest py-1.5 text-[12px] font-semibold text-white disabled:opacity-60"
+        >
+          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Guardar"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -424,7 +544,7 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
 
       <div>
         <label htmlFor="acopio-supplies" className={LABEL_CLASS}>
-          Insumos que necesita (separados por coma)
+          Qué le falta (separado por coma)
         </label>
         <input
           id="acopio-supplies"
@@ -432,6 +552,20 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
           type="text"
           maxLength={300}
           placeholder="Agua embotellada, Kits de aseo, Cobijas"
+          className={FIELD_CLASS}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="acopio-surplus" className={LABEL_CLASS}>
+          Qué le sobra (separado por coma, opcional)
+        </label>
+        <input
+          id="acopio-surplus"
+          name="supplies_surplus"
+          type="text"
+          maxLength={300}
+          placeholder="Ropa usada, Juguetes"
           className={FIELD_CLASS}
         />
       </div>

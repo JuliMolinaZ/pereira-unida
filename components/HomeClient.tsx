@@ -61,7 +61,11 @@ import FilterBar, {
 } from "./FilterBar";
 import DenseReportList from "./DenseReportList";
 import ReportCardSkeleton from "./ReportCardSkeleton";
+import NotificationsPrompt from "./NotificationsPrompt";
+import SectorFilter from "./SectorFilter";
 import { isInAppBrowser } from "@/lib/device";
+import { isCriticalMedicine } from "@/lib/medicine";
+import { matchesSector, sectorById } from "@/lib/sectors";
 import {
   cityById,
   DEFAULT_CITY_ID,
@@ -244,6 +248,12 @@ export default function HomeClient({
   >(null);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
   const [category, setCategory] = useState<CategoryQuickFilter>("todos");
+  // Pereira Unida siempre se muestra: este filtro solo apaga/prende las
+  // fuentes externas (Ayudas Pereira, Corag, Pereira Responde) — nunca lo
+  // propio, para que lo propio sea siempre "lo fuerte" por defecto.
+  const [includeExternal, setIncludeExternal] = useState(true);
+  const [criticalMedicineOnly, setCriticalMedicineOnly] = useState(false);
+  const [sectorId, setSectorId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [priorityMode, setPriorityMode] = useState(false);
@@ -302,6 +312,9 @@ export default function HomeClient({
     const reportId = fromProp || params?.get("reporte") || null;
     const rentalId = params?.get("arriendo") || null;
     const vista = params?.get("vista") ?? null;
+    const sector = params?.get("sector") ?? null;
+
+    if (sector && sectorById(sector)) setSectorId(sector);
 
     if (!reportId && !rentalId && !isValidVista(vista)) return;
     setAppliedInitialReportId(true);
@@ -701,6 +714,13 @@ export default function HomeClient({
   }, [refetch, dataError]);
 
   const isSearching = debouncedSearchQuery.length >= 2;
+  // Filtro por una categoría puntual (ej. "Mascotas"): puntos de acopio,
+  // centros y ayudas externas no tienen forma confiable de saber si son de
+  // esa categoría (cada fuente usa su propio vocabulario), así que en vez
+  // de mostrarlos todos sin filtrar — lo que hacía ver "de todo" al elegir
+  // una categoría — se ocultan, igual que ya se ocultaban en la lista
+  // ("también piden/ofrecen ayuda" solo aparece con category === "todos").
+  const isSpecificCategory = !isSearching && Boolean(shareableCategory);
 
   const visibleReports = useMemo(() => {
     let base = reports;
@@ -713,6 +733,15 @@ export default function HomeClient({
       category !== "arriendos"
     ) {
       base = base.filter((r) => r.category === category);
+    }
+    if (criticalMedicineOnly) {
+      base = base.filter((r) => isCriticalMedicine(`${r.title} ${r.description}`));
+    }
+    if (sectorId) {
+      const sector = sectorById(sectorId);
+      if (sector) {
+        base = base.filter((r) => matchesSector(r.location_name || "", sector));
+      }
     }
     if (!isSearching) {
       if (listScope === "activos") base = base.filter((r) => !isClosedStatus(r.status));
@@ -748,6 +777,8 @@ export default function HomeClient({
     listScope,
     timeWindow,
     category,
+    criticalMedicineOnly,
+    sectorId,
     isSearching,
     debouncedSearchQuery,
     nationwide,
@@ -813,21 +844,22 @@ export default function HomeClient({
   const mapRentals = isSearching || isRentalsView ? visibleRentals : [];
 
   const externalRoadAfectaciones = useMemo(
-    () => externalAfectaciones.filter((a) => a.tipo === "road"),
-    [externalAfectaciones]
+    () => (includeExternal ? externalAfectaciones.filter((a) => a.tipo === "road") : []),
+    [externalAfectaciones, includeExternal]
   );
   const externalDamageAfectaciones = useMemo(
-    () => externalAfectaciones.filter((a) => a.tipo !== "road"),
-    [externalAfectaciones]
+    () => (includeExternal ? externalAfectaciones.filter((a) => a.tipo !== "road") : []),
+    [externalAfectaciones, includeExternal]
   );
   const externalRequests = useMemo(
-    () => externalAyudas.filter((a) => a.tipo === "request"),
-    [externalAyudas]
+    () => (includeExternal ? externalAyudas.filter((a) => a.tipo === "request") : []),
+    [externalAyudas, includeExternal]
   );
   const externalOffers = useMemo(
-    () => externalAyudas.filter((a) => a.tipo === "offer"),
-    [externalAyudas]
+    () => (includeExternal ? externalAyudas.filter((a) => a.tipo === "offer") : []),
+    [externalAyudas, includeExternal]
   );
+  const mapExternalCentros = includeExternal ? externalCentros : [];
 
   useEffect(() => {
     if (!selectedReportId) return;
@@ -925,6 +957,16 @@ export default function HomeClient({
     setSheetMode("expanded");
   }
 
+  function handleShowClosedRoads() {
+    setPriorityMode(false);
+    setCategory("vias_cerradas");
+    setSelectedRentalId(null);
+    // No colapsar una hoja que ya está en "peek"/"expanded" — solo abrirla
+    // si estaba pegada al mapa (el pin de vías cerradas sigue visible en
+    // los tres modos, así que tocarlo estando ya expandida no debe achicarla).
+    setSheetMode((mode) => (mode === "map" ? "peek" : mode));
+  }
+
   function handleWantsToRent() {
     if (isRentalsView) {
       setCategory("todos");
@@ -989,15 +1031,26 @@ export default function HomeClient({
         {mapReady && zoneReady ? (
           <ReportsMap
             reports={(isPointsView || isRentalsView) && !isSearching ? [] : visibleReports}
-            points={isRentalsView && !isSearching ? [] : mapPoints}
-            roads={isRentalsView && !isSearching ? [] : mapRoads}
+            points={isRentalsView && !isSearching ? [] : isSpecificCategory ? [] : mapPoints}
+            roads={isRentalsView && !isSearching ? [] : isSpecificCategory ? [] : mapRoads}
             places={isSearching ? mapPlaces : []}
             rentals={mapRentals}
-            externalCentros={isRentalsView && !isSearching ? [] : externalCentros}
-            externalAyudas={isRentalsView && !isSearching ? [] : externalAyudas}
-            externalAfectaciones={isRentalsView && !isSearching ? [] : externalAfectaciones}
+            externalCentros={
+              isRentalsView && !isSearching ? [] : isSpecificCategory ? [] : mapExternalCentros
+            }
+            externalAyudas={
+              (isRentalsView && !isSearching) || !includeExternal || isSpecificCategory
+                ? []
+                : externalAyudas
+            }
+            externalAfectaciones={
+              (isRentalsView && !isSearching) || !includeExternal || isSpecificCategory
+                ? []
+                : externalAfectaciones
+            }
             fitSearchResults={isSearching && !selectedPlaceId}
             fitRentals={isRentalsView && !isSearching && !selectedRentalId}
+            fitPoints={isPointsView && !isSearching}
             selectedReportId={selectedReportId}
             selectedPlaceId={selectedPlaceId}
             selectedRentalId={selectedRentalId}
@@ -1014,6 +1067,7 @@ export default function HomeClient({
             onSelectRental={handleSelectRental}
             onAddClosedRoad={() => setRoadModalOpen(true)}
             onReopenRoad={handleReopenRoad}
+            onShowClosedRoads={handleShowClosedRoads}
           />
         ) : (
           <MapBootScreen />
@@ -1028,6 +1082,8 @@ export default function HomeClient({
           onSearchQueryChange={setSearchQuery}
           cityName={city.name}
           onCityClick={() => openCityPicker()}
+          municipality={zoneQueryFor(city).municipality ?? null}
+          department={zoneQueryFor(city).department ?? null}
         />
 
         {dataError && (
@@ -1053,7 +1109,15 @@ export default function HomeClient({
             timeWindow={timeWindow}
             onTimeWindowChange={setTimeWindow}
             showMetroChips={showMetroChips}
+            includeExternal={includeExternal}
+            onIncludeExternalChange={setIncludeExternal}
+            criticalMedicineOnly={criticalMedicineOnly}
+            onCriticalMedicineOnlyChange={setCriticalMedicineOnly}
           />
+        </div>
+
+        <div className="mt-1.5">
+          <SectorFilter sectorId={sectorId} onSectorChange={setSectorId} />
         </div>
       </div>
 
@@ -1083,6 +1147,11 @@ export default function HomeClient({
           rentalsActive={isRentalsView}
         />
       </div>
+
+      <NotificationsPrompt
+        municipality={zoneQueryFor(city).municipality ?? null}
+        department={zoneQueryFor(city).department ?? null}
+      />
 
       <div
         className={cn(
@@ -1137,7 +1206,7 @@ export default function HomeClient({
             className="sheet-scroll min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
             {isPointsView && !isSearching ? (
-              <CollectionPoints points={points} externalCentros={externalCentros} city={city} />
+              <CollectionPoints points={points} externalCentros={mapExternalCentros} city={city} />
             ) : isRoadsView && !isSearching ? (
               <div className="space-y-2 p-0.5">
                 <button
@@ -1266,7 +1335,11 @@ export default function HomeClient({
                               ? `Mira las solicitudes de ${CATEGORY_LABELS[shareableCategory].toLowerCase()} en ${city.name} en Pereira Unida.`
                               : `Mira las solicitudes de ${CATEGORY_LABELS[shareableCategory].toLowerCase()} en Pereira Unida.`
                           }
-                          url={listShareUrl(shareableCategory, nationwide ? undefined : city.id)}
+                          url={listShareUrl(
+                            shareableCategory,
+                            nationwide ? undefined : city.id,
+                            sectorId
+                          )}
                           label={`Compartir ${CATEGORY_LABELS[shareableCategory]}`}
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
                         />

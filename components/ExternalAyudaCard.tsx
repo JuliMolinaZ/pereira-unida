@@ -1,15 +1,17 @@
 "use client";
 
 import { MessageCircle, ExternalLink } from "lucide-react";
-import type { ExternalAyuda } from "@/lib/types";
+import { EXTERNAL_FUENTE_LABELS, type ExternalAyuda } from "@/lib/types";
 import { formatTimeAgo, toWhatsAppNumber } from "@/lib/utils";
 import FuenteBadge from "./FuenteBadge";
 
-/** Tarjeta para ayuda directa de Corag (peticiones y ofrecimientos de personas concretas). */
+/** Tarjeta para ayuda directa entre personas concretas (peticiones y ofrecimientos),
+ * de cualquier fuente externa que alimente `external_ayudas` — ver `ayuda.fuente`. */
 export default function ExternalAyudaCard({ ayuda }: { ayuda: ExternalAyuda }) {
+  const fuenteLabel = EXTERNAL_FUENTE_LABELS[ayuda.fuente];
   const number = ayuda.contact_whatsapp ? toWhatsAppNumber(ayuda.contact_whatsapp) : null;
   const waHref = number
-    ? `https://wa.me/${number}?text=${encodeURIComponent(`Hola, vi "${ayuda.title}" en Pereira Unida (vía Corag) y quiero ayudar.`)}`
+    ? `https://wa.me/${number}?text=${encodeURIComponent(`Hola, vi "${ayuda.title}" en Pereira Unida (vía ${fuenteLabel}) y quiero ayudar.`)}`
     : null;
 
   return (
@@ -52,13 +54,13 @@ export default function ExternalAyudaCard({ ayuda }: { ayuda: ExternalAyuda }) {
             href={ayuda.public_url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Ver en Corag"
+            aria-label={`Ver en ${fuenteLabel}`}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
           >
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
           </a>
         ) : null}
-        <FuenteBadge fuente="corag" />
+        <FuenteBadge fuente={ayuda.fuente} />
       </div>
     </article>
   );

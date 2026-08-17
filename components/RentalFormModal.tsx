@@ -16,6 +16,9 @@ import {
 } from "@/lib/regions";
 import PhotoPicker from "./PhotoPicker";
 import CityBanner from "./CityBanner";
+import TurnstileWidget from "./TurnstileWidget";
+
+const TURNSTILE_ENABLED = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,
@@ -59,6 +62,7 @@ export default function RentalFormModal({
   const [mapOpen, setMapOpen] = useState(true);
   const [photoEpoch, setPhotoEpoch] = useState(0);
   const [photosBusy, setPhotosBusy] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
   const photosRef = useRef<File[]>([]);
   const locationRef = useRef({ lat, lng, address, municipality });
   locationRef.current = { lat, lng, address, municipality };
@@ -107,6 +111,7 @@ export default function RentalFormModal({
     setPhotoEpoch((n) => n + 1);
     photosRef.current = [];
     setPhotosBusy(false);
+    setTurnstileToken("");
   }
 
   async function applyCoords(latitude: number, longitude: number) {
@@ -153,6 +158,7 @@ export default function RentalFormModal({
       formData.set("department", city.department);
       formData.set("furnished", furnished ? "si" : "no");
       formData.set("property_type", propertyType);
+      formData.set("turnstile_token", turnstileToken);
       formData.delete("photos");
       for (const file of photosRef.current) {
         formData.append("photos", file);
@@ -388,6 +394,12 @@ export default function RentalFormModal({
           onBusyChange={setPhotosBusy}
         />
 
+        <TurnstileWidget
+          action="create_rental"
+          onVerify={setTurnstileToken}
+          onExpire={() => setTurnstileToken("")}
+        />
+
         {state.error ? (
           <p className="text-[13px] font-medium text-carmine" role="alert">
             {state.error}
@@ -396,7 +408,7 @@ export default function RentalFormModal({
 
         <button
           type="submit"
-          disabled={isPending || photosBusy}
+          disabled={isPending || photosBusy || (TURNSTILE_ENABLED && !turnstileToken)}
           className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#1a6b78]/90 text-[15px] font-semibold text-white disabled:opacity-60"
         >
           {isPending || photosBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

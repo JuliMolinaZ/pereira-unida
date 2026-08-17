@@ -20,7 +20,6 @@ import {
   updatePersonStatus,
   type ActionResult,
 } from "@/app/actions";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { reverseGeocode } from "@/lib/geocode";
 import { cn, formatTimeAgo, googleMapsUrl } from "@/lib/utils";
 import { explainPhotoFailure } from "@/lib/photos";
@@ -215,8 +214,11 @@ export default function FamilyStatusModal({
     });
   }, [debouncedQuery, city]);
 
-  // Realtime: si alguien busca mientras llegan altas/actualizaciones,
-  // refresca los resultados sin que tenga que volver a escribir.
+  // people_status ya no tiene policy pública de Realtime (ver "Notas de
+  // seguridad" en el README: se cerró para que nadie pueda streamear
+  // cédulas/teléfonos crudos por WebSocket). En su lugar, mientras el modal
+  // de búsqueda está abierto con una consulta activa, refrescamos con un
+  // polling liviano cada 20s reusando la misma búsqueda enmascarada.
   const searchStateRef = useRef({ tab, debouncedQuery, city });
   useEffect(() => {
     searchStateRef.current = { tab, debouncedQuery, city };
@@ -224,28 +226,20 @@ export default function FamilyStatusModal({
 
   useEffect(() => {
     if (!open) return;
-    const supabase = getSupabaseBrowserClient();
-    const channel = supabase
-      .channel("people-status-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "people_status" },
-        () => {
-          const { tab: currentTab, debouncedQuery: q } = searchStateRef.current;
-          const trimmed = q.trim();
-          if (currentTab === "buscar" && trimmed) {
-            startSearch(async () => {
-              const data = await searchPersonStatus(trimmed, zoneQueryFor(searchStateRef.current.city));
-              setResults(data);
-              setSearched(true);
-            });
-          }
-        }
-      )
-      .subscribe();
+    const interval = window.setInterval(() => {
+      const { tab: currentTab, debouncedQuery: q } = searchStateRef.current;
+      const trimmed = q.trim();
+      if (currentTab === "buscar" && trimmed) {
+        startSearch(async () => {
+          const data = await searchPersonStatus(trimmed, zoneQueryFor(searchStateRef.current.city));
+          setResults(data);
+          setSearched(true);
+        });
+      }
+    }, 20_000);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.clearInterval(interval);
     };
   }, [open]);
 

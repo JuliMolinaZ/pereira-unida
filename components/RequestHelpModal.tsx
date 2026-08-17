@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 import { explainPhotoFailure } from "@/lib/photos";
 import PhotoPicker from "./PhotoPicker";
 import CityBanner from "./CityBanner";
+import TurnstileWidget from "./TurnstileWidget";
+
+const TURNSTILE_ENABLED = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 import {
   cityById,
   DEFAULT_CITY_ID,
@@ -72,6 +75,7 @@ export default function RequestHelpModal({
   const [mapOpen, setMapOpen] = useState(false);
   const [photoEpoch, setPhotoEpoch] = useState(0);
   const [photosBusy, setPhotosBusy] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
   const photosRef = useRef<File[]>([]);
   const locationRef = useRef({ lat, lng, locationName, category, municipality, urgency });
   locationRef.current = { lat, lng, locationName, category, municipality, urgency };
@@ -95,6 +99,7 @@ export default function RequestHelpModal({
     setPhotoEpoch((n) => n + 1);
     photosRef.current = [];
     setPhotosBusy(false);
+    setTurnstileToken("");
   }
 
   async function applyCoords(latitude: number, longitude: number) {
@@ -137,6 +142,7 @@ export default function RequestHelpModal({
       formData.set("lat", loc.lat);
       formData.set("lng", loc.lng);
       formData.set("location_name", loc.locationName || "Ubicación exacta");
+      formData.set("turnstile_token", turnstileToken);
       formData.delete("photos");
       for (const file of photosRef.current) {
         formData.append("photos", file);
@@ -446,6 +452,12 @@ export default function RequestHelpModal({
           onBusyChange={setPhotosBusy}
         />
 
+        <TurnstileWidget
+          action="create_report"
+          onVerify={setTurnstileToken}
+          onExpire={() => setTurnstileToken("")}
+        />
+
         {!state.success && state.error && (
           <p className="text-[13px] font-medium text-carmine" role="alert">
             {state.error}
@@ -454,7 +466,12 @@ export default function RequestHelpModal({
 
         <button
           type="submit"
-          disabled={isPending || photosBusy || !hasExactLocation}
+          disabled={
+            isPending ||
+            photosBusy ||
+            !hasExactLocation ||
+            (TURNSTILE_ENABLED && !turnstileToken)
+          }
           className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-carmine text-base font-semibold text-white transition disabled:opacity-60"
         >
           {isPending && <Loader2 className="h-4 w-4 animate-spin" />}

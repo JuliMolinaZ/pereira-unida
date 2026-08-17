@@ -24,11 +24,16 @@ const AYUDAS_PEREIRA_ANON_KEY = "sb_publishable_hWboFTjrnhfsAn5gXDW_Gg_rqx2iGLR"
 
 const CORAG_BASE = "https://ayuda.corag.app/api/public/v1/help";
 const PEREIRA_RESPONDE_URL = "https://pereiraresponde.co/api/public/v1/reports?limit=500";
+/** Directorio abierto (MIT, sin key, CORS abierto) — ver pereiraayuda.com/api.html.
+ * Un solo archivo con todo en vez de 10 (uno por categoría): mismo dato, una sola descarga. */
+const PEREIRA_AYUDA_URL = "https://pereiraayuda.com/api/puntos.json";
+/** Reporte CO (crafter-station/reporte-co): feed nacional, filtramos a Risaralda al sincronizar. */
+const REPORTE_CO_URL = "https://co.crafter.run/api/reports";
 
 const MIN_SECONDS_BETWEEN_SYNCS = 180;
 const STALE_CLAIM_SECONDS = 120;
 
-type Fuente = "ayudas_pereira" | "corag" | "pereira_responde";
+type Fuente = "ayudas_pereira" | "corag" | "pereira_responde" | "pereira_ayuda" | "reporte_co";
 
 /** La tarjeta trunca visualmente a 2 líneas (line-clamp-2); no tiene sentido
  * transferir un párrafo entero por celular para mostrar solo el principio. */
@@ -257,20 +262,219 @@ async function syncPereiraResponde(ourClient: SupabaseClient): Promise<void> {
   await pruneMissing(ourClient, "external_afectaciones", "pereira_responde", rows.map((r) => r.id));
 }
 
+interface PereiraAyudaPunto {
+  id: string;
+  categoria: string;
+  estado: string;
+  nombre: string;
+  descripcion: string | null;
+  ubicacion: {
+    direccion: string | null;
+    barrio: string | null;
+    municipio: string;
+    lat: number | null;
+    lng: number | null;
+  };
+  contacto: {
+    telefono: string | null;
+    nombre: string | null;
+    whatsapp: boolean;
+  };
+  etiquetas: string[];
+  confirmaciones_24h: number;
+  publicado_en: string;
+  advertencia: string | null;
+  advertencia_grave: boolean;
+  lado: "lugar" | "pide" | "ofrece";
+  url: string;
+}
+
+const RESUELTOS = new Set(["resuelto", "cerrado"]);
+
+/**
+ * Pereira Ayuda: directorio abierto de acopio/albergues/hospitales (lugares),
+ * pedidos/ofrecimientos de ayuda directa, y zonas de colapso/riesgo
+ * estructural — mismo municipio scope que esta app (Pereira, Dosquebradas,
+ * La Virginia, Santa Rosa de Cabal). Un único punto puede caer en
+ * external_centros, external_ayudas o external_afectaciones según su
+ * `categoria`/`lado`. Ver pereiraayuda.com/api.html — datos abiertos, MIT,
+ * pide preservar `fuente` (lo hacemos vía FuenteBadge) al reusar.
+ */
+async function syncPereiraAyuda(ourClient: SupabaseClient): Promise<void> {
+  const res = await fetch(PEREIRA_AYUDA_URL, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`Pereira Ayuda respondió ${res.status}`);
+  const json = (await res.json()) as { puntos?: PereiraAyudaPunto[] };
+  const puntos = (json.puntos ?? []).filter((p) => !RESUELTOS.has(p.estado));
+
+  const centros: Record<string, unknown>[] = [];
+  const ayudas: Record<string, unknown>[] = [];
+  const afectaciones: Record<string, unknown>[] = [];
+  const now = new Date().toISOString();
+
+  for (const p of puntos) {
+    const id = `pereira_ayuda:${p.id}`;
+    const municipality = p.ubicacion.municipio || null;
+    const lat = p.ubicacion.lat;
+    const lng = p.ubicacion.lng;
+
+    if (p.categoria === "colapso") {
+      afectaciones.push({
+        id,
+        fuente: "pereira_ayuda" as const,
+        external_id: p.id,
+        tipo: "housing" as const,
+        gravedad: p.advertencia_grave ? "alta" : p.etiquetas.includes("estructural") ? "media" : "sin-clasificar",
+        title: truncate(p.nombre, 140) as string,
+        subtipo: p.categoria,
+        nota: truncate(p.advertencia ?? p.descripcion, 200),
+        lat,
+        lng,
+        photo_count: 0,
+        votes: p.confirmaciones_24h ?? 0,
+        score: 0,
+        created_at_source: p.publicado_en,
+        synced_at: now,
+      });
+    } else if (p.lado === "lugar") {
+      centros.push({
+        id,
+        fuente: "pereira_ayuda" as const,
+        external_id: p.id,
+        nombre: p.nombre,
+        direccion: p.ubicacion.direccion ?? p.ubicacion.barrio,
+        municipality,
+        lat,
+        lng,
+        abierto: true,
+        foto: null,
+        necesidades: p.etiquetas.map((categoria) => ({ categoria, prioridad: "normal" })),
+        synced_at: now,
+      });
+    } else if (p.lado === "pide" || p.lado === "ofrece") {
+      ayudas.push({
+        id,
+        fuente: "pereira_ayuda" as const,
+        external_id: p.id,
+        tipo: p.lado === "pide" ? ("request" as const) : ("offer" as const),
+        title: truncate(p.nombre, 140) as string,
+        description: truncate(p.descripcion, 280),
+        category: p.categoria,
+        urgency: p.advertencia_grave ? "alta" : null,
+        status: p.estado,
+        address: p.ubicacion.direccion ?? p.ubicacion.barrio,
+        municipality,
+        lat,
+        lng,
+        contact_name: p.contacto.nombre,
+        contact_whatsapp: p.contacto.whatsapp ? p.contacto.telefono : null,
+        public_url: p.url,
+        created_at_source: p.publicado_en,
+        synced_at: now,
+      });
+    }
+  }
+
+  const upsertOrThrow = async (table: string, rows: Record<string, unknown>[]) => {
+    if (rows.length === 0) return;
+    const { error } = await ourClient.from(table).upsert(rows, { onConflict: "id" });
+    if (error) throw new Error(`upsert ${table}: ${error.message}`);
+  };
+  await upsertOrThrow("external_centros", centros);
+  await upsertOrThrow("external_ayudas", ayudas);
+  await upsertOrThrow("external_afectaciones", afectaciones);
+
+  await pruneMissing(ourClient, "external_centros", "pereira_ayuda", centros.map((r) => r.id as string));
+  await pruneMissing(ourClient, "external_ayudas", "pereira_ayuda", ayudas.map((r) => r.id as string));
+  await pruneMissing(
+    ourClient,
+    "external_afectaciones",
+    "pereira_ayuda",
+    afectaciones.map((r) => r.id as string)
+  );
+}
+
+interface ReporteCoItem {
+  id: string;
+  category: string;
+  severity: "critical" | "high" | "medium" | "low" | string;
+  summary: string;
+  departamento: string;
+  municipio: string | null;
+  barrio: string | null;
+  lat: number | null;
+  lng: number | null;
+  media: unknown[];
+  createdAt: string;
+}
+
+const REPORTE_CO_TIPO: Record<string, "housing" | "road" | "support"> = {
+  roads: "road",
+  damage: "housing",
+};
+
+const REPORTE_CO_GRAVEDAD: Record<string, string> = {
+  critical: "alta",
+  high: "alta",
+  medium: "media",
+};
+
+/**
+ * Reporte CO (crafter-station/reporte-co, open source): feed nacional de
+ * incidentes ciudadanos sin PII (nunca guarda teléfonos crudos, coordenadas
+ * ya vienen a grilla ~2km). Filtramos a Risaralda: es el único cruce con el
+ * área que cubre esta app, y mezclar incidentes de otros departamentos
+ * arruinaría "Pereira Unida siempre lo más fuerte" en el feed principal.
+ */
+async function syncReporteCo(ourClient: SupabaseClient): Promise<void> {
+  const res = await fetch(REPORTE_CO_URL, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`Reporte CO respondió ${res.status}`);
+  const json = (await res.json()) as { data?: ReporteCoItem[] };
+  const items = (json.data ?? []).filter((item) => item.departamento === "Risaralda");
+
+  const rows = items.map((item) => ({
+    id: `reporte_co:${item.id}`,
+    fuente: "reporte_co" as const,
+    external_id: item.id,
+    tipo: REPORTE_CO_TIPO[item.category] ?? ("support" as const),
+    gravedad: REPORTE_CO_GRAVEDAD[item.severity] ?? "sin-clasificar",
+    title: truncate(item.summary, 140) as string,
+    subtipo: item.category,
+    nota: truncate(item.summary, 200),
+    lat: item.lat,
+    lng: item.lng,
+    photo_count: Array.isArray(item.media) ? item.media.length : 0,
+    votes: 0,
+    score: 0,
+    created_at_source: item.createdAt,
+    synced_at: new Date().toISOString(),
+  }));
+
+  if (rows.length > 0) {
+    const { error } = await ourClient.from("external_afectaciones").upsert(rows, { onConflict: "id" });
+    if (error) throw new Error(`upsert external_afectaciones: ${error.message}`);
+  }
+  await pruneMissing(ourClient, "external_afectaciones", "reporte_co", rows.map((r) => r.id));
+}
+
 const SYNCERS: Record<Fuente, (client: SupabaseClient) => Promise<void>> = {
   ayudas_pereira: syncAyudasPereira,
   corag: syncCorag,
   pereira_responde: syncPereiraResponde,
+  pereira_ayuda: syncPereiraAyuda,
+  reporte_co: syncReporteCo,
 };
 
 export type SyncSummary = Record<Fuente, "ok" | "skipped" | string>;
 
-/** Corre las tres sincronizaciones que logren reclamar su turno. Tolerante a fallos parciales. */
+/** Corre las sincronizaciones que logren reclamar su turno. Tolerante a fallos parciales. */
 export async function runExternalSync(): Promise<SyncSummary> {
   const client = ourServiceClient();
   const summary = {} as SyncSummary;
   if (!client) {
-    return { ayudas_pereira: "sin SUPABASE_SERVICE_ROLE_KEY", corag: "sin SUPABASE_SERVICE_ROLE_KEY", pereira_responde: "sin SUPABASE_SERVICE_ROLE_KEY" };
+    for (const fuente of Object.keys(SYNCERS) as Fuente[]) {
+      summary[fuente] = "sin SUPABASE_SERVICE_ROLE_KEY";
+    }
+    return summary;
   }
 
   for (const fuente of Object.keys(SYNCERS) as Fuente[]) {

@@ -1,6 +1,6 @@
 export const PHOTO_BUCKET = "community-photos";
 export const MAX_PHOTOS_PER_ENTRY = 3;
-export const MAX_RENTAL_PHOTOS = 6;
+export const MAX_RENTAL_PHOTOS = 10;
 /** Tope duro en el server (después de comprimir en el celular). */
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 /** Tope al elegir: un disparo de cámara puede irse a 8–15 MB. */

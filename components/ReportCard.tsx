@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Loader2, MapPin, MessageCircle, Navigation, Phone } from "lucide-react";
+import { AlertTriangle, Loader2, MapPin, MessageCircle, Navigation, Phone } from "lucide-react";
 import { updateReportStatus, confirmReportActive } from "@/app/actions";
 import { formatTimeAgo, googleMapsUrl, reportShareUrl, shareToWhatsApp, cn } from "@/lib/utils";
+import { findCriticalMedicineTerms } from "@/lib/medicine";
 import ShareButton from "./ShareButton";
 import FuenteBadge from "./FuenteBadge";
 import {
@@ -42,6 +43,8 @@ export default function ReportCard({
   const [error, setError] = useState<string | null>(null);
   const mapsHref = googleMapsUrl(report.lat, report.lng);
   const closed = isClosedStatus(report.status);
+  const criticalTerms = findCriticalMedicineTerms(`${report.title} ${report.description}`);
+  const criticalMedicine = criticalTerms.length > 0;
 
   function handleConfirmActive() {
     setError(null);
@@ -81,16 +84,23 @@ export default function ReportCard({
         className={cn(
           "report-row cursor-pointer border-b border-black/10 py-2.5 pr-3 pl-0 transition dark:border-white/10",
           closed && "opacity-70",
-          selected && "bg-black/5 dark:bg-white/8"
+          selected && "bg-black/5 dark:bg-white/8",
+          criticalMedicine && "bg-rose-50/60 dark:bg-rose-950/25"
         )}
       >
         <div className="flex items-stretch gap-2.5">
           <span
             className="w-1 shrink-0 self-stretch rounded-full"
-            style={{ backgroundColor: pinColorForReport(report) }}
+            style={{ backgroundColor: criticalMedicine ? "#e11d48" : pinColorForReport(report) }}
             aria-hidden="true"
           />
           <div className="min-w-0 flex-1">
+            {criticalMedicine ? (
+              <p className="mb-0.5 flex items-center gap-1 text-[10px] font-bold tracking-wide text-rose-600 uppercase dark:text-rose-400">
+                <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                Medicamento crítico
+              </p>
+            ) : null}
             <h3 className="truncate text-[14px] leading-snug font-semibold text-ink">
               {report.title}
             </h3>
@@ -147,13 +157,20 @@ export default function ReportCard({
         "glass rounded-[22px] p-3 transition",
         onSelect && "cursor-pointer",
         selected && "ring-1 ring-carmine/40",
-        closed && "opacity-80"
+        closed && "opacity-80",
+        criticalMedicine && "border-l-4 border-rose-500 bg-rose-50/50 dark:bg-rose-950/20"
       )}
     >
+      {criticalMedicine ? (
+        <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold tracking-wide text-rose-600 uppercase dark:text-rose-400">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          Medicamento crítico / urgente
+        </p>
+      ) : null}
       <div className="flex items-center gap-1.5">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
-          style={{ backgroundColor: pinColorForReport(report) }}
+          style={{ backgroundColor: criticalMedicine ? "#e11d48" : pinColorForReport(report) }}
           aria-hidden="true"
         />
         <span className="text-[12px] font-medium text-ink-soft">
@@ -175,6 +192,7 @@ export default function ReportCard({
         <ExpandableText
           text={report.description}
           className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words text-ink-soft"
+          highlightTerms={criticalMedicine ? criticalTerms : undefined}
         />
       ) : null}
 

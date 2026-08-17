@@ -63,11 +63,18 @@ checks.push({
   detail: bucketError?.message ?? (bucketOk ? "existe" : "NO existe"),
 });
 
-const { data: insertedReport, error: insertReportError } = await publicClient
+// Desde la migración 20260817010000_lock_down_rls.sql, el anon key ya NO
+// puede insertar directo en reports/people_status (ni seleccionar
+// people_status en absoluto) — toda escritura pasa por
+// getPrivilegedSupabaseClient() en app/actions.ts con la service role. Estos
+// checks verifican que el candado está puesto (fallo esperado del anon) y
+// que la app en sí sigue pudiendo escribir (éxito esperado del admin).
+
+const { data: anonInsertedReport, error: anonInsertReportError } = await publicClient
   .from("reports")
   .insert({
     title: stamp,
-    description: "predeploy check — borrar",
+    description: "predeploy check — no debería insertarse",
     category: "otros",
     urgent_level: "moderado",
     status: "informacion_falsa",
@@ -78,23 +85,64 @@ const { data: insertedReport, error: insertReportError } = await publicClient
     contact_phone: "3000000000",
     photo_urls: [],
   })
-  .select("id, status")
+  .select("id")
   .single();
 checks.push({
-  name: "anon insert reports.status=informacion_falsa",
-  ok: !insertReportError && insertedReport?.status === "informacion_falsa",
-  detail: insertReportError?.message ?? `id ${insertedReport?.id?.slice(0, 8)} status=${insertedReport?.status}`,
+  name: "RLS: anon insert directo a reports queda BLOQUEADO",
+  ok: Boolean(anonInsertReportError),
+  detail: anonInsertReportError ? "bloqueado (esperado)" : "¡se insertó! falta aplicar la migración de RLS",
 });
-if (insertedReport?.id) {
-  const { error: delRep } = await admin.from("reports").delete().eq("id", insertedReport.id);
-  checks.push({
-    name: "borrar reporte de verificación",
-    ok: !delRep,
-    detail: delRep?.message ?? "borrado",
-  });
+// Si el candado todavía no está puesto (o falta admin para limpiar), no
+// dejamos basura de prueba en producción.
+if (anonInsertedReport?.id && secret) {
+  await admin.from("reports").delete().eq("id", anonInsertedReport.id);
 }
 
-const { data: insertedPerson, error: insertPersonError } = await publicClient
+// Ojo: RLS sin policy de select no tira error — PostgREST responde 200 con
+// un array vacío (como si la tabla no tuviera filas), así que "hubo error"
+// no sirve para detectar el bloqueo. En cambio comparamos el count real
+// (visto por admin, que bypassa RLS) contra lo que ve el anon: si admin ve
+// filas y anon ve 0, está bloqueado de verdad; si la tabla estuviera vacía
+// de por sí, este check no podría concluir nada (se marca como advertencia).
+let peopleSelectCheck;
+if (!secret) {
+  peopleSelectCheck = {
+    ok: false,
+    detail: "SUPABASE_SERVICE_ROLE_KEY no está seteada: no puedo confirmar el count real para comparar.",
+  };
+} else {
+  const { count: adminCount, error: adminCountError } = await admin
+    .from("people_status")
+    .select("id", { count: "exact", head: true });
+  const { count: anonCount, error: anonCountError } = await publicClient
+    .from("people_status")
+    .select("id", { count: "exact", head: true });
+  if (adminCountError || anonCountError) {
+    peopleSelectCheck = {
+      ok: false,
+      detail: (adminCountError ?? anonCountError)?.message ?? "error desconocido",
+    };
+  } else if ((adminCount ?? 0) === 0) {
+    peopleSelectCheck = {
+      ok: false,
+      detail: "la tabla no tiene filas ahora mismo — no se puede confirmar el bloqueo con este check",
+    };
+  } else {
+    const blocked = (anonCount ?? 0) === 0;
+    peopleSelectCheck = {
+      ok: blocked,
+      detail: blocked
+        ? `bloqueado (esperado) — admin ve ${adminCount}, anon ve 0`
+        : `¡anon ve ${anonCount} de ${adminCount} filas! falta aplicar la migración de RLS`,
+    };
+  }
+}
+checks.push({
+  name: "RLS: anon select directo a people_status queda BLOQUEADO",
+  ...peopleSelectCheck,
+});
+
+const { data: anonInsertedPerson, error: anonInsertPeopleError } = await publicClient
   .from("people_status")
   .insert({
     full_name: stamp,
@@ -106,20 +154,82 @@ const { data: insertedPerson, error: insertPersonError } = await publicClient
     contact_number: "3000000000",
     photo_urls: [],
   })
-  .select("id, lat, lng")
+  .select("id")
   .single();
 checks.push({
-  name: "anon insert people_status con lat/lng",
-  ok: !insertPersonError && insertedPerson?.lat != null && insertedPerson?.lng != null,
-  detail: insertPersonError?.message ?? `id ${insertedPerson?.id?.slice(0, 8)} lat=${insertedPerson?.lat}`,
+  name: "RLS: anon insert directo a people_status queda BLOQUEADO",
+  ok: Boolean(anonInsertPeopleError),
+  detail: anonInsertPeopleError ? "bloqueado (esperado)" : "¡se insertó! falta aplicar la migración de RLS",
 });
-if (insertedPerson?.id) {
-  const { error: delPeo } = await admin.from("people_status").delete().eq("id", insertedPerson.id);
+if (anonInsertedPerson?.id && secret) {
+  await admin.from("people_status").delete().eq("id", anonInsertedPerson.id);
+}
+
+if (!secret) {
   checks.push({
-    name: "borrar people_status de verificación",
-    ok: !delPeo,
-    detail: delPeo?.message ?? "borrado",
+    name: "admin (service role) insert/delete reports + people_status",
+    ok: false,
+    detail: "SUPABASE_SERVICE_ROLE_KEY no está seteada: la app no podría escribir en absoluto tras el candado de RLS",
   });
+} else {
+  const { data: insertedReport, error: insertReportError } = await admin
+    .from("reports")
+    .insert({
+      title: stamp,
+      description: "predeploy check — borrar",
+      category: "otros",
+      urgent_level: "moderado",
+      status: "informacion_falsa",
+      municipality: "Pereira",
+      location_name: "QA check",
+      lat: 4.8143,
+      lng: -75.6946,
+      contact_phone: "3000000000",
+      photo_urls: [],
+    })
+    .select("id, status")
+    .single();
+  checks.push({
+    name: "admin insert reports.status=informacion_falsa",
+    ok: !insertReportError && insertedReport?.status === "informacion_falsa",
+    detail: insertReportError?.message ?? `id ${insertedReport?.id?.slice(0, 8)} status=${insertedReport?.status}`,
+  });
+  if (insertedReport?.id) {
+    const { error: delRep } = await admin.from("reports").delete().eq("id", insertedReport.id);
+    checks.push({
+      name: "borrar reporte de verificación",
+      ok: !delRep,
+      detail: delRep?.message ?? "borrado",
+    });
+  }
+
+  const { data: insertedPerson, error: insertPersonError } = await admin
+    .from("people_status")
+    .insert({
+      full_name: stamp,
+      municipality: "Pereira",
+      neighborhood: "QA check",
+      lat: 4.8143,
+      lng: -75.6946,
+      status: "a_salvo",
+      contact_number: "3000000000",
+      photo_urls: [],
+    })
+    .select("id, lat, lng")
+    .single();
+  checks.push({
+    name: "admin insert people_status con lat/lng",
+    ok: !insertPersonError && insertedPerson?.lat != null && insertedPerson?.lng != null,
+    detail: insertPersonError?.message ?? `id ${insertedPerson?.id?.slice(0, 8)} lat=${insertedPerson?.lat}`,
+  });
+  if (insertedPerson?.id) {
+    const { error: delPeo } = await admin.from("people_status").delete().eq("id", insertedPerson.id);
+    checks.push({
+      name: "borrar people_status de verificación",
+      ok: !delPeo,
+      detail: delPeo?.message ?? "borrado",
+    });
+  }
 }
 
 const tinyJpeg = Buffer.from(

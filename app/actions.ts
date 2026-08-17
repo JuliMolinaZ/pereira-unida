@@ -5,16 +5,16 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { scheduleExternalSync } from "@/lib/externalSync";
-import {
-  createServerSupabaseClient,
-  tryCreateServerSupabaseClient,
-} from "@/lib/supabase/server";
+import { tryCreateServerSupabaseClient } from "@/lib/supabase/server";
 import {
   getSupabaseConfigError,
   SUPABASE_CONFIG_ERROR_MESSAGE,
 } from "@/lib/supabase/config";
+import { getPrivilegedSupabaseClient, getPrivilegedSupabaseOrError } from "@/lib/supabase/privileged";
 import {
+  CATEGORY_EMOJI,
   HELP_SKILLS,
+  HELP_SKILL_LABELS,
   isClosedStatus,
   type ClosedRoad,
   type ClosedRoadReason,
@@ -50,6 +50,9 @@ import {
   PHOTO_BUCKET,
 } from "@/lib/photos";
 import { deleteSpaceObjects, isSpacesConfigured, uploadSpaceObject } from "@/lib/spaces";
+import { isPushConfigured, notifySubscribers, type PushTopic } from "@/lib/push";
+import { formatCop, SITE_URL } from "@/lib/utils";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 import { DEFAULT_DEPARTMENT, inColombia, isKnownCityName } from "@/lib/regions";
 import { parseMonthlyRent } from "@/lib/rentals";
 
@@ -200,21 +203,26 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAt: number }>();
 
+async function getClientIp(): Promise<string | null> {
+  const hdrs = await headers();
+  const ip =
+    hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    hdrs.get("x-real-ip") ||
+    null;
+  return ip;
+}
+
 async function checkRateLimit(
   action: string,
   limit: number,
   windowMs: number
 ): Promise<boolean> {
-  const hdrs = await headers();
-  const ip =
-    hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    hdrs.get("x-real-ip") ||
-    "unknown";
+  const ip = await getClientIp();
 
   // Sin IP no podemos distinguir clientes: limitar aquí penalizaría a todo
   // el mundo por igual (o dejaría a un solo abusador bloquear a otros
   // detrás del mismo bucket "unknown"). Fail open.
-  if (ip === "unknown") return true;
+  if (!ip) return true;
 
   const key = `${action}:${ip}`;
   const now = Date.now();
@@ -513,13 +521,6 @@ async function loadReports(
   };
 }
 
-/**
- * Cliente de Supabase para altas administradas por PIN (centros de acopio).
- * Usa la service role si está configurada (bypassa RLS de forma controlada
- * en el server); si no, cae al cliente anon normal y la única barrera es el
- * PIN validado en el server action. Solo se llama después de confirmar que
- * NEXT_PUBLIC_SUPABASE_URL/ANON_KEY son válidas (ver createCollectionPoint).
- */
 /** Storage: la service role bypasea RLS del bucket (las policies
  * públicas a veces no quedan aplicadas en el dashboard). */
 function getStorageSupabaseClient(): SupabaseClient | null {
@@ -527,15 +528,6 @@ function getStorageSupabaseClient(): SupabaseClient | null {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceRoleKey) return null;
   return createClient(url, serviceRoleKey, { auth: { persistSession: false } });
-}
-
-function getAcopioSupabaseClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (url && serviceRoleKey) {
-    return createClient(url, serviceRoleKey, { auth: { persistSession: false } });
-  }
-  return createServerSupabaseClient();
 }
 
 /** Compara dos strings en tiempo constante (evita timing attacks sobre el PIN). */
@@ -593,7 +585,7 @@ export async function createReport(
     return { success: false, error: "La ubicación debe estar en Colombia." };
   }
 
-  const allowed = await checkRateLimit("createReport", 5, 60_000);
+  const allowed = await checkRateLimit("createReport", 3, 600_000);
   if (!allowed) {
     return {
       success: false,
@@ -601,7 +593,13 @@ export async function createReport(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const turnstile = await verifyTurnstileToken(
+    String(formData.get("turnstile_token") ?? ""),
+    await getClientIp()
+  );
+  if (!turnstile.ok) return { success: false, error: turnstile.error };
+
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const photos = await uploadFormPhotos(sb.client, "reports", formData);
@@ -629,8 +627,18 @@ export async function createReport(
     };
   }
 
+  const created = normalizeReport(data as unknown as Record<string, unknown>);
+  after(() => {
+    void notifySubscribers("ayudas", municipality, {
+      title: `${CATEGORY_EMOJI[created.category]} Piden ayuda en ${municipality}`,
+      body: created.title,
+      url: `${SITE_URL}/?reporte=${created.id}`,
+      tag: "ayudas",
+    });
+  });
+
   revalidatePath("/");
-  return { success: true, data: normalizeReport(data as unknown as Record<string, unknown>) };
+  return { success: true, data: created };
 }
 
 /**
@@ -645,7 +653,7 @@ export async function updateReportStatus(
   if (!VALID_STATUS.includes(newStatus))
     return { success: false, error: "Estado inválido." };
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { error } = await sb.client
@@ -675,7 +683,7 @@ export async function updateReportStatus(
 export async function confirmReportActive(reportId: string): Promise<ActionResult> {
   if (!reportId) return { success: false, error: "reportId es requerido." };
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const now = new Date().toISOString();
@@ -731,7 +739,7 @@ export async function addComment(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await sb.client
@@ -1140,7 +1148,7 @@ export async function registerPersonStatus(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const photos = await uploadFormPhotos(sb.client, "people", formData);
@@ -1201,7 +1209,7 @@ export async function searchPersonStatus(
   const q = sanitizeIlikeInput(query);
   if (!q) return [];
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return [];
 
   const run = async (withDepartment: boolean) => {
@@ -1258,7 +1266,7 @@ export async function updatePersonStatus(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await sb.client
@@ -1287,7 +1295,7 @@ export async function getPeopleStatusByIds(
   const validIds = ids.filter((id) => UUID_RE.test(id)).slice(0, 10);
   if (validIds.length === 0) return [];
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return [];
 
   try {
@@ -1366,7 +1374,7 @@ export async function createClosedRoad(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await insertRow(sb.client, "closed_roads", {
@@ -1397,7 +1405,7 @@ export async function reopenClosedRoad(
 ): Promise<ActionResult<ClosedRoad>> {
   if (!UUID_RE.test(id)) return { success: false, error: "Vía inválida." };
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await sb.client
@@ -1443,7 +1451,13 @@ export async function createHelpOffer(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const turnstileOffer = await verifyTurnstileToken(
+    String(formData.get("turnstile_token") ?? ""),
+    await getClientIp()
+  );
+  if (!turnstileOffer.ok) return { success: false, error: turnstileOffer.error };
+
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await insertRow(sb.client, "help_offers", {
@@ -1465,14 +1479,24 @@ export async function createHelpOffer(
     };
   }
 
+  const createdOffer = data as HelpOffer;
+  after(() => {
+    void notifySubscribers("ofertas", municipality, {
+      title: `🤝 Ofrecen ayuda en ${municipality}`,
+      body: `${createdOffer.full_name} — ${HELP_SKILL_LABELS[skill]}`,
+      url: `${SITE_URL}/?vista=ofrezco`,
+      tag: "ofertas",
+    });
+  });
+
   revalidatePath("/");
-  return { success: true, data: data as HelpOffer };
+  return { success: true, data: createdOffer };
 }
 
 export async function hideHelpOffer(id: string): Promise<ActionResult<HelpOffer>> {
   if (!UUID_RE.test(id)) return { success: false, error: "Oferta inválida." };
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await sb.client
@@ -1527,6 +1551,11 @@ export async function createCollectionPoint(
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const surplusRaw = String(formData.get("supplies_surplus") ?? "");
+  const suppliesSurplus = surplusRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const openHours = String(formData.get("open_hours") ?? "").trim();
   const contact = String(formData.get("contact") ?? "").trim();
   const latRaw = formData.get("lat");
@@ -1550,7 +1579,7 @@ export async function createCollectionPoint(
     return { success: false, error: "La ubicación debe estar en Colombia." };
   }
 
-  const supabase = getAcopioSupabaseClient();
+  const supabase = getPrivilegedSupabaseClient();
 
   const { data, error } = await insertRow(supabase, "collection_points", {
     name,
@@ -1558,11 +1587,69 @@ export async function createCollectionPoint(
     municipality,
     department,
     supplies_needed: suppliesNeeded,
+    supplies_surplus: suppliesSurplus,
     open_hours: openHours,
     contact,
     lat,
     lng,
   });
+
+  let finalData = data;
+  let finalError = error;
+  if (finalError && /supplies_surplus/i.test(finalError.message)) {
+    ({ data: finalData, error: finalError } = await insertRow(supabase, "collection_points", {
+      name,
+      address,
+      municipality,
+      department,
+      supplies_needed: suppliesNeeded,
+      open_hours: openHours,
+      contact,
+      lat,
+      lng,
+    }));
+  }
+
+  if (finalError) {
+    return { success: false, error: finalError.message };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: finalData as CollectionPoint };
+}
+
+/**
+ * Actualiza qué le falta y qué le sobra a un centro de acopio ya existente
+ * (mismo PIN que la creación). El balance se queda viejo rápido si solo se
+ * puede fijar una vez al crear el punto — esto lo mantiene al día sin tener
+ * que borrar y volver a publicar el centro entero.
+ */
+export async function updateCollectionPointBalance(
+  id: string,
+  pin: string,
+  suppliesNeeded: string[],
+  suppliesSurplus: string[]
+): Promise<ActionResult<CollectionPoint>> {
+  if (!UUID_RE.test(id)) return { success: false, error: "Centro inválido." };
+  if (!matchesAcopioSecret(pin)) {
+    return { success: false, error: "PIN incorrecto." };
+  }
+
+  const allowed = await checkRateLimit("updateCollectionPointBalance", 10, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const supabase = getPrivilegedSupabaseClient();
+  const { data, error } = await supabase
+    .from("collection_points")
+    .update({ supplies_needed: suppliesNeeded, supplies_surplus: suppliesSurplus })
+    .eq("id", id)
+    .select()
+    .single();
 
   if (error) {
     return { success: false, error: error.message };
@@ -1655,7 +1742,13 @@ export async function createRental(formData: FormData): Promise<ActionResult<Ren
     };
   }
 
-  const sb = getSupabaseOrError();
+  const turnstileRental = await verifyTurnstileToken(
+    String(formData.get("turnstile_token") ?? ""),
+    await getClientIp()
+  );
+  if (!turnstileRental.ok) return { success: false, error: turnstileRental.error };
+
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const photos = await uploadFormPhotos(sb.client, "rentals", formData, MAX_RENTAL_PHOTOS);
@@ -1687,8 +1780,18 @@ export async function createRental(formData: FormData): Promise<ActionResult<Ren
     };
   }
 
+  const createdRental = normalizeRental(data as Rental);
+  after(() => {
+    void notifySubscribers("arriendos", municipality, {
+      title: `🏠 Nuevo arriendo en ${municipality}`,
+      body: `${createdRental.property_type} en ${createdRental.neighborhood || createdRental.municipality} — ${formatCop(createdRental.monthly_rent)}`,
+      url: `${SITE_URL}/?arriendo=${createdRental.id}`,
+      tag: "arriendos",
+    });
+  });
+
   revalidatePath("/");
-  return { success: true, data: normalizeRental(data as Rental) };
+  return { success: true, data: createdRental };
 }
 
 export type RentalImportRow = {
@@ -1701,6 +1804,7 @@ export type RentalImportRow = {
   contact: string;
   monthly_rent: number | null;
   submitted_at?: string | null;
+  photo_urls?: string[];
   lat: number | null;
   lng: number | null;
 };
@@ -1727,7 +1831,7 @@ export async function importRentals(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const payload = [];
@@ -1770,7 +1874,7 @@ export async function importRentals(
       contact: contact.slice(0, 80),
       monthly_rent:
         typeof row.monthly_rent === "number" && row.monthly_rent > 0 ? Math.round(row.monthly_rent) : null,
-      photo_urls: [] as string[],
+      photo_urls: sanitizeImportPhotoUrls(row.photo_urls),
       lat: hasPin ? lat : null,
       lng: hasPin ? lng : null,
       submitted_at: row.submitted_at || null,
@@ -1797,6 +1901,24 @@ export async function importRentals(
     success: true,
     data: { created: payload.length, skipped, withoutPin },
   };
+}
+
+/** Solo URLs http(s) válidas, sin duplicados, acotadas a MAX_RENTAL_PHOTOS —
+ * `importRentals` recibe estas URLs desde el CSV/spreadsheet pegado en
+ * RentalAdminPanel (ej. fotos ya alojadas por la inmobiliaria), nunca
+ * archivos subidos por el navegador. */
+function sanitizeImportPhotoUrls(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const urls: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) continue;
+    if (urls.includes(trimmed)) continue;
+    urls.push(trimmed);
+    if (urls.length >= MAX_RENTAL_PHOTOS) break;
+  }
+  return urls;
 }
 
 function foldDup(value: string): string {
@@ -1829,7 +1951,7 @@ export async function updateRentalStatus(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await sb.client
@@ -1895,7 +2017,7 @@ export async function addRentalComment(
     };
   }
 
-  const sb = getSupabaseOrError();
+  const sb = getPrivilegedSupabaseOrError();
   if (!sb.client) return { success: false, error: sb.error };
 
   const { data, error } = await sb.client
@@ -1919,4 +2041,61 @@ export async function addRentalComment(
 
   revalidatePath("/");
   return { success: true, data: data as Comment };
+}
+
+// ---------------------------------------------------------------------------
+// Notificaciones push (Web Push, VAPID) — opt-in, ver
+// components/NotificationsOptIn.tsx y lib/push.ts.
+// ---------------------------------------------------------------------------
+
+export interface PushSubscriptionInput {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/** ¿Están configuradas las VAPID keys? Si no, el botón de activar push ni se muestra. */
+export async function isPushNotificationsEnabled(): Promise<boolean> {
+  return isPushConfigured();
+}
+
+export async function savePushSubscription(
+  subscription: PushSubscriptionInput,
+  topics: PushTopic[],
+  municipality: string | null,
+  department: string | null
+): Promise<ActionResult> {
+  if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
+    return { success: false, error: "Suscripción inválida." };
+  }
+  const validTopics = topics.filter((t): t is PushTopic =>
+    (["ayudas", "ofertas", "arriendos"] as PushTopic[]).includes(t)
+  );
+
+  const sb = getPrivilegedSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { error } = await sb.client.from("push_subscriptions").upsert(
+    {
+      endpoint: subscription.endpoint,
+      p256dh: subscription.keys.p256dh,
+      auth: subscription.keys.auth,
+      topics: validTopics,
+      municipality,
+      department,
+    },
+    { onConflict: "endpoint" }
+  );
+
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function removePushSubscription(endpoint: string): Promise<ActionResult> {
+  if (!endpoint) return { success: false, error: "Endpoint requerido." };
+  const sb = getPrivilegedSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { error } = await sb.client.from("push_subscriptions").delete().eq("endpoint", endpoint);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
 }

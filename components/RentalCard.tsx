@@ -61,6 +61,8 @@ export default function RentalCard({
     });
   }
 
+  const hasPhotos = rental.photo_urls.length > 0;
+
   return (
     <article
       id={`rental-${rental.id}`}
@@ -84,14 +86,55 @@ export default function RentalCard({
         !available && "opacity-70"
       )}
     >
+      {!compact && hasPhotos ? (
+        <div className="relative -mx-2.5 -mt-2.5 mb-2.5 aspect-[16/10] w-[calc(100%+1.25rem)] overflow-hidden bg-black/5 dark:bg-white/5">
+          {/* eslint-disable-next-line @next/next/no-img-element -- fotos de usuario/inmobiliaria en CDN externo */}
+          <img
+            src={rental.photo_urls[0]}
+            alt={rental.property_type}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
+          {rental.photo_urls.length > 1 ? (
+            <span className="absolute right-2 bottom-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur-sm">
+              📷 {rental.photo_urls.length}
+            </span>
+          ) : null}
+          {!available ? (
+            <span className="absolute top-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur-sm">
+              {RENTAL_STATUS_LABELS[rental.status]}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex items-start gap-2.5">
-        <span
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-[20px]"
-          style={{ backgroundColor: `${RENTAL_COLOR}22` }}
-          aria-hidden="true"
-        >
-          {RENTAL_EMOJI}
-        </span>
+        {hasPhotos ? (
+          <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-black/5 dark:bg-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element -- miniatura de portada */}
+            <img
+              src={rental.photo_urls[0]}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
+            {rental.photo_urls.length > 1 ? (
+              <span className="absolute right-0.5 bottom-0.5 rounded-full bg-black/60 px-1 text-[9px] font-bold text-white">
+                {rental.photo_urls.length}
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          <span
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-[20px]"
+            style={{ backgroundColor: `${RENTAL_COLOR}22` }}
+            aria-hidden="true"
+          >
+            {RENTAL_EMOJI}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-[12px] font-semibold" style={{ color: RENTAL_COLOR }}>
             {rental.property_type}
@@ -130,10 +173,10 @@ export default function RentalCard({
         </div>
       </div>
 
-      <PhotoStrip urls={rental.photo_urls} alt={rental.property_type} size={compact ? "sm" : "md"} />
-
       {!compact ? (
         <>
+          <PhotoStrip urls={rental.photo_urls} alt={rental.property_type} size="md" />
+
           <div className="mt-2.5 flex items-center gap-2">
             <a
               href={shareToWhatsAppRental(rental)}

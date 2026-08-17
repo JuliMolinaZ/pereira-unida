@@ -13,6 +13,9 @@ import {
 } from "@/lib/types";
 import { cityById, DEFAULT_CITY_ID, municipalityForPin, type AppCity } from "@/lib/regions";
 import CityBanner from "./CityBanner";
+import TurnstileWidget from "./TurnstileWidget";
+
+const TURNSTILE_ENABLED = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
 interface HelpOfferModalProps {
   open: boolean;
@@ -50,6 +53,7 @@ export default function HelpOfferModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [fullName, setFullName] = useState("");
   const [skill, setSkill] = useState<HelpSkill>("psicologia");
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   const [state, formAction, isPending] = useActionState(
     async (_prev: ActionResult<HelpOffer>, formData: FormData) => {
@@ -57,6 +61,7 @@ export default function HelpOfferModal({
       formData.set("skill", skill);
       formData.set("municipality", municipalityForPin(city));
       formData.set("department", city.department);
+      formData.set("turnstile_token", turnstileToken);
       const result = await createHelpOffer(formData);
       if (result.success && result.data) {
         onCreated(result.data);
@@ -75,6 +80,7 @@ export default function HelpOfferModal({
     function handleClose() {
       setFullName("");
       setSkill("psicologia");
+      setTurnstileToken("");
       onClose();
     }
     function handleBackdropClick(e: MouseEvent) {
@@ -191,6 +197,12 @@ export default function HelpOfferModal({
           />
         </div>
 
+        <TurnstileWidget
+          action="create_offer"
+          onVerify={setTurnstileToken}
+          onExpire={() => setTurnstileToken("")}
+        />
+
         {state.error ? (
           <p className="text-[13px] font-medium text-carmine" role="alert">
             {state.error}
@@ -199,7 +211,7 @@ export default function HelpOfferModal({
 
         <button
           type="submit"
-          disabled={isPending || !fullName.trim()}
+          disabled={isPending || !fullName.trim() || (TURNSTILE_ENABLED && !turnstileToken)}
           className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-forest text-[15px] font-semibold text-white disabled:opacity-60"
         >
           {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

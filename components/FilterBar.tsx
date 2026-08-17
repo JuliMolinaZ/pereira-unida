@@ -31,6 +31,10 @@ interface FilterBarProps {
   timeWindow: TimeWindowFilter;
   onTimeWindowChange: (value: TimeWindowFilter) => void;
   showMetroChips?: boolean;
+  includeExternal?: boolean;
+  onIncludeExternalChange?: (value: boolean) => void;
+  criticalMedicineOnly?: boolean;
+  onCriticalMedicineOnlyChange?: (value: boolean) => void;
 }
 
 export default function FilterBar({
@@ -41,6 +45,10 @@ export default function FilterBar({
   timeWindow,
   onTimeWindowChange,
   showMetroChips = true,
+  includeExternal = true,
+  onIncludeExternalChange,
+  criticalMedicineOnly = false,
+  onCriticalMedicineOnlyChange,
 }: FilterBarProps) {
   return (
     <div
@@ -104,6 +112,29 @@ export default function FilterBar({
       >
         <span aria-hidden="true">⏱️</span> Últimas 6 h
       </Chip>
+
+      {onCriticalMedicineOnlyChange ? (
+        <Chip
+          color="#e11d48"
+          active={criticalMedicineOnly}
+          onClick={() => onCriticalMedicineOnlyChange(!criticalMedicineOnly)}
+        >
+          <span aria-hidden="true">🩺</span> Solo medicinas críticas
+        </Chip>
+      ) : null}
+
+      {onIncludeExternalChange ? (
+        <>
+          <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
+          <Chip
+            active={includeExternal}
+            onClick={() => onIncludeExternalChange(!includeExternal)}
+          >
+            <span aria-hidden="true">🌐</span>{" "}
+            {includeExternal ? "Otras fuentes" : "Solo Pereira Unida"}
+          </Chip>
+        </>
+      ) : null}
     </div>
   );
 }

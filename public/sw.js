@@ -72,3 +72,45 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 });
+
+// Notificaciones push (nueva solicitud/oferta/arriendo cerca). Con la app
+// cerrada, el navegador despierta el service worker solo para esto.
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "Pereira Unida", body: event.data ? event.data.text() : "" };
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || "Pereira Unida", {
+      body: payload.body || "",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: payload.tag || "pereiraunida",
+      renotify: true,
+      // Patrón corto (vibra-pausa-vibra): se siente como un aviso real del
+      // celular, no un ping perdido entre notificaciones de otras apps.
+      vibrate: [80, 40, 80],
+      data: { url: payload.url || "/" },
+      actions: [{ action: "view", title: "Ver en el mapa" }],
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data && event.notification.data.url ? event.notification.data.url : "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientsArr) => {
+      for (const client of clientsArr) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});

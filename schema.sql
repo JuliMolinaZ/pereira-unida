@@ -730,3 +730,105 @@ values ('ayudas_pereira'), ('corag'), ('pereira_responde')
 on conflict (fuente) do nothing;
 
 alter table public.external_sync_state enable row level security;
+
+-- ============================================================================
+-- MIGRACIÓN — Cerrar acceso directo por REST/Realtime a datos sensibles
+-- (2026-08-17). Mismo contenido que
+-- supabase/migrations/20260817010000_lock_down_rls.sql.
+--
+-- Por qué: hasta ahora reports/comments/collection_points/closed_roads/
+-- help_offers/rentals/rental_comments/people_status tenían RLS con
+-- `using (true)` / `with check (true)`, o sea que cualquiera con la anon key
+-- (siempre visible en el bundle del navegador, normal en apps Supabase)
+-- podía leer y ESCRIBIR esas tablas directo contra
+-- https://<proyecto>.supabase.co/rest/v1/<tabla> o vía Realtime, sin pasar
+-- por app/actions.ts — saltándose el rate limiting, la validación, y en el
+-- caso de people_status, el enmascarado de document_id (cédula) que la app
+-- sí aplica en la UI (maskDocumentId) pero que nunca protegía la fila cruda.
+--
+-- Qué cambia:
+--   - people_status: se eliminan las 3 policies públicas (select/insert/
+--     update). Queda 100% detrás de SUPABASE_SERVICE_ROLE_KEY, solo
+--     accesible desde el server (ver getPrivilegedSupabaseClient en
+--     app/actions.ts). Sin esa key configurada, el módulo "Estoy Bien" deja
+--     de funcionar — es intencional: preferimos fallar cerrado a exponer
+--     cédulas/teléfonos en bloque.
+--   - reports, comments, collection_points, closed_roads, help_offers,
+--     rentals, rental_comments: se mantiene la policy de SELECT pública (la
+--     necesita Realtime para seguir mostrando altas/cambios en vivo, y
+--     contact_phone en reports ya es intencionalmente público — ver README).
+--     Se eliminan las policies de INSERT/UPDATE públicas: toda escritura
+--     pasa a hacerse con la service role desde los Server Actions.
+--
+-- Idempotente: `drop policy if exists` no falla si ya se corrió antes.
+-- ============================================================================
+
+drop policy if exists "people_status_select_public" on public.people_status;
+drop policy if exists "people_status_insert_public" on public.people_status;
+drop policy if exists "people_status_update_public" on public.people_status;
+
+drop policy if exists "reports_insert_public" on public.reports;
+drop policy if exists "reports_update_public" on public.reports;
+
+drop policy if exists "comments_insert_public" on public.comments;
+
+drop policy if exists "collection_points_insert_public" on public.collection_points;
+
+drop policy if exists "closed_roads_insert_public" on public.closed_roads;
+drop policy if exists "closed_roads_update_public" on public.closed_roads;
+
+drop policy if exists "help_offers_insert_public" on public.help_offers;
+drop policy if exists "help_offers_update_public" on public.help_offers;
+
+drop policy if exists "rentals_insert_public" on public.rentals;
+drop policy if exists "rentals_update_public" on public.rentals;
+
+drop policy if exists "rental_comments_insert_public" on public.rental_comments;
+
+
+-- ============================================================================
+-- MIGRACIÓN — Dos fuentes externas más: Pereira Ayuda y Reporte CO
+-- (2026-08-17). Mismo contenido que
+-- supabase/migrations/20260817020000_more_external_sources.sql.
+--
+-- Reusa las tablas external_centros/external_ayudas/external_afectaciones
+-- que ya existen (son genéricas por `fuente`) — solo hace falta sembrar la
+-- fila de candado en external_sync_state para el mecanismo atómico de
+-- sincronización (ver lib/externalSync.ts).
+-- ============================================================================
+
+insert into public.external_sync_state (fuente)
+values ('pereira_ayuda'), ('reporte_co')
+on conflict (fuente) do nothing;
+
+
+-- ============================================================================
+-- MIGRACIÓN — Balance "Falta / Sobra" en centros de acopio (2026-08-17).
+-- Mismo contenido que
+-- supabase/migrations/20260817030000_collection_point_surplus.sql.
+-- ============================================================================
+
+alter table public.collection_points
+  add column if not exists supplies_surplus text[] not null default '{}';
+
+
+-- ============================================================================
+-- MIGRACIÓN — Notificaciones push (2026-08-17). Mismo contenido que
+-- supabase/migrations/20260817040000_push_subscriptions.sql.
+-- ============================================================================
+
+create table if not exists public.push_subscriptions (
+  id             uuid primary key default gen_random_uuid(),
+  endpoint       text not null unique,
+  p256dh         text not null,
+  auth           text not null,
+  municipality   text,
+  department     text,
+  topics         text[] not null default '{}',
+  last_notified_at timestamptz,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists push_subscriptions_municipality_idx on public.push_subscriptions (municipality);
+
+alter table public.push_subscriptions enable row level security;

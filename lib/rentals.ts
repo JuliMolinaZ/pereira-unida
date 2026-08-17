@@ -1,4 +1,5 @@
 import { cityByName, cityFromText, DEFAULT_CITY_ID, cityById } from "@/lib/regions";
+import { MAX_RENTAL_PHOTOS } from "@/lib/photos";
 
 export type ParsedRentalRow = {
   municipality: string;
@@ -10,6 +11,7 @@ export type ParsedRentalRow = {
   contact: string;
   monthly_rent: number | null;
   submitted_at: string | null;
+  photo_urls: string[];
   sourceLine: number;
 };
 
@@ -60,6 +62,7 @@ type ColKey =
   | "furnished"
   | "contact"
   | "monthly_rent"
+  | "photo_urls"
   | "skip";
 
 function classifyHeader(header: string): ColKey {
@@ -73,7 +76,24 @@ function classifyHeader(header: string): ColKey {
   if (/amoblad/.test(h)) return "furnished";
   if (/propietario|contacto|telefono|whatsapp|celular/.test(h)) return "contact";
   if (/valor|arriendo|mensual|precio|canon/.test(h)) return "monthly_rent";
+  if (/foto|imagen|imagenes|photo|fotos/.test(h)) return "photo_urls";
   return "skip";
+}
+
+/** Una celda puede traer varias URLs de foto separadas por coma/espacio/salto
+ * de línea/punto y coma — típico al pegar un export de inmobiliaria. Solo se
+ * quedan las que parecen URLs http(s) reales, sin duplicados. */
+export function parsePhotoUrlsCell(raw: string): string[] {
+  if (!raw.trim()) return [];
+  const candidates = raw.split(/[\s,;|]+/).map((s) => s.trim()).filter(Boolean);
+  const urls: string[] = [];
+  for (const candidate of candidates) {
+    if (!/^https?:\/\/\S+$/i.test(candidate)) continue;
+    if (urls.includes(candidate)) continue;
+    urls.push(candidate);
+    if (urls.length >= MAX_RENTAL_PHOTOS) break;
+  }
+  return urls;
 }
 
 export function parseMonthlyRent(raw: string): number | null {
@@ -191,6 +211,7 @@ export function parseRentalsSpreadsheet(text: string): {
       contact: contact.slice(0, 80),
       monthly_rent: parseMonthlyRent(get("monthly_rent")),
       submitted_at: parseSubmittedAt(get("submitted_at")),
+      photo_urls: parsePhotoUrlsCell(get("photo_urls")),
       sourceLine: i + 1,
     });
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 const CLAMP = {
@@ -9,14 +9,43 @@ const CLAMP = {
   4: "line-clamp-4",
 } as const;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Envuelve las apariciones de `terms` (case/accent-insensitive de forma
+ * aproximada) en <mark> para que resalten dentro del texto — ver
+ * "resaltado de medicamentos críticos" en ReportCard. */
+function highlight(text: string, terms: string[]) {
+  if (terms.length === 0) return text;
+  // Capturing group en split(): los índices impares son siempre los matches.
+  const pattern = new RegExp(`(${terms.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(pattern);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark
+        key={i}
+        className="rounded bg-rose-200/70 px-0.5 font-semibold text-rose-900 dark:bg-rose-500/30 dark:text-rose-200"
+      >
+        {part}
+      </mark>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    )
+  );
+}
+
 export default function ExpandableText({
   text,
   lines = 3,
   className,
+  highlightTerms,
 }: {
   text: string;
   lines?: 2 | 3 | 4;
   className?: string;
+  /** Términos a resaltar dentro del texto (ver lib/medicine.ts). */
+  highlightTerms?: string[];
 }) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -42,7 +71,7 @@ export default function ExpandableText({
         ref={ref}
         className={cn(className, !expanded && CLAMP[lines])}
       >
-        {text}
+        {highlightTerms ? highlight(text, highlightTerms) : text}
       </p>
       {overflows ? (
         <button

@@ -57,6 +57,9 @@ export interface CollectionPoint {
   municipality: Municipality;
   department?: string;
   supplies_needed: string[];
+  /** Balance del centro: qué le sobra (para no seguir mandando lo mismo).
+   * Puede venir vacío/null en centros creados antes de esta columna. */
+  supplies_surplus: string[];
   open_hours: string;
   contact: string;
   lat: number | null;
@@ -425,7 +428,12 @@ export function maskDocumentId(id: string | null): string | null {
  * su sello de procedencia — nunca se mezclan con lo publicado en Pereira
  * Unida sin marcar de dónde viene.
  */
-export type ExternalFuente = "ayudas_pereira" | "corag" | "pereira_responde";
+export type ExternalFuente =
+  | "ayudas_pereira"
+  | "corag"
+  | "pereira_responde"
+  | "pereira_ayuda"
+  | "reporte_co";
 
 /** Cualquier fuente mostrable con FuenteBadge, incluida la propia (para dejar
  * explícito qué nace en Pereira Unida cuando se mezcla con datos externos). */
@@ -435,6 +443,8 @@ export const EXTERNAL_FUENTE_LABELS: Record<MapFuente, string> = {
   ayudas_pereira: "Ayudas Pereira",
   corag: "Corag",
   pereira_responde: "Pereira Responde",
+  pereira_ayuda: "Pereira Ayuda",
+  reporte_co: "Reporte CO",
   pereira_unida: "Pereira Unida",
 };
 
@@ -443,6 +453,8 @@ export const EXTERNAL_FUENTE_COLORS: Record<MapFuente, string> = {
   ayudas_pereira: "#b8860b",
   corag: "#65a30d",
   pereira_responde: "#dc2626",
+  pereira_ayuda: "#0891b2",
+  reporte_co: "#7c3aed",
   pereira_unida: "#a61b1b",
 };
 
@@ -459,7 +471,7 @@ export interface ExternalNecesidad {
 
 export interface ExternalCentro {
   id: string;
-  fuente: "ayudas_pereira";
+  fuente: "ayudas_pereira" | "pereira_ayuda";
   external_id: string;
   nombre: string;
   direccion: string | null;
@@ -474,7 +486,7 @@ export interface ExternalCentro {
 
 export interface ExternalAyuda {
   id: string;
-  fuente: "corag";
+  fuente: "corag" | "pereira_ayuda";
   external_id: string;
   tipo: "request" | "offer";
   title: string;
@@ -495,7 +507,7 @@ export interface ExternalAyuda {
 
 export interface ExternalAfectacion {
   id: string;
-  fuente: "pereira_responde";
+  fuente: "pereira_responde" | "pereira_ayuda" | "reporte_co";
   external_id: string;
   tipo: "housing" | "road" | "support";
   gravedad: string | null;

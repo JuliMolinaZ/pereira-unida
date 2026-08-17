@@ -82,7 +82,7 @@ export default function HelpOffers({
             onClick={onSeeNeeds}
             className="h-10 shrink-0 rounded-full bg-black/5 px-3 text-[12px] font-semibold text-forest dark:bg-white/10"
           >
-            Pedidos
+            Solicitudes
           </button>
           <ShareButton
             title="Quienes ayudan en Pereira Unida"

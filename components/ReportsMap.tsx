@@ -13,6 +13,7 @@ import {
   CATEGORY_EMOJI,
   CATEGORY_LABELS,
   EXTERNAL_FUENTE_COLORS,
+  EXTERNAL_FUENTE_LABELS,
   MAP_DEFAULT_CENTER,
   MAP_DEFAULT_ZOOM,
   RENTAL_COLOR,
@@ -28,6 +29,7 @@ import {
   type ExternalAfectacion,
   type ExternalAyuda,
   type ExternalCentro,
+  type ExternalFuente,
   type Rental,
   type Report,
 } from "@/lib/types";
@@ -265,6 +267,21 @@ function useMapClusters<T extends { id: string; lat: number; lng: number }>(
   return { index, features };
 }
 
+/** Un cluster puede agrupar puntos de varias fuentes externas a la vez (ej.
+ * Corag + Pereira Ayuda cerca uno del otro) — no hay un único color
+ * "correcto". Usamos la fuente de un punto representativo del cluster en vez
+ * de asumir siempre la misma fuente (lo que mostraba mal el color apenas
+ * hubo una segunda fuente en la misma tabla). */
+function clusterRepresentativeColor(
+  index: Supercluster<{ id: string }>,
+  clusterId: number,
+  byId: Map<string, { fuente: ExternalFuente }>
+): string {
+  const leaf = index.getLeaves(clusterId, 1)[0];
+  const fuente = leaf ? byId.get(leaf.properties.id)?.fuente : undefined;
+  return fuente ? EXTERNAL_FUENTE_COLORS[fuente] : EXTERNAL_FUENTE_COLORS.pereira_unida;
+}
+
 interface ReportsMapProps {
   reports: Report[];
   points: CollectionPoint[];
@@ -276,6 +293,7 @@ interface ReportsMapProps {
   externalAfectaciones?: ExternalAfectacion[];
   fitSearchResults?: boolean;
   fitRentals?: boolean;
+  fitPoints?: boolean;
   selectedReportId: string | null;
   selectedPlaceId?: string | null;
   selectedRentalId?: string | null;
@@ -284,6 +302,7 @@ interface ReportsMapProps {
   onSelectRental?: (id: string) => void;
   onAddClosedRoad?: () => void;
   onReopenRoad?: (id: string) => void;
+  onShowClosedRoads?: () => void;
   centerLat?: number;
   centerLng?: number;
   zoom?: number;
@@ -302,6 +321,7 @@ export default function ReportsMap({
   externalAfectaciones = [],
   fitSearchResults = false,
   fitRentals = false,
+  fitPoints = false,
   selectedReportId,
   selectedPlaceId = null,
   selectedRentalId = null,
@@ -310,6 +330,7 @@ export default function ReportsMap({
   onSelectRental,
   onAddClosedRoad,
   onReopenRoad,
+  onShowClosedRoads,
   centerLat = MAP_DEFAULT_CENTER.lat,
   centerLng = MAP_DEFAULT_CENTER.lng,
   zoom = MAP_DEFAULT_ZOOM,
@@ -321,6 +342,7 @@ export default function ReportsMap({
   const usedFallback = useRef(false);
   const lastSearchFitKey = useRef("");
   const lastRentalFitKey = useRef("");
+  const lastPointsFitKey = useRef("");
   const [mapStyle, setMapStyle] = useState<string | StyleSpecification>(VECTOR_STYLE);
   const [openPointId, setOpenPointId] = useState<string | null>(null);
   const [openPlaceId, setOpenPlaceId] = useState<string | null>(null);
@@ -459,7 +481,7 @@ export default function ReportsMap({
     ? toWhatsAppNumber(openExternalAyuda.contact_whatsapp)
     : null;
   const openAyudaWhatsAppHref = openAyudaWhatsAppNumber
-    ? `https://wa.me/${openAyudaWhatsAppNumber}?text=${encodeURIComponent(`Hola, vi "${openExternalAyuda?.title}" en Pereira Unida (vía Corag) y quiero ayudar.`)}`
+    ? `https://wa.me/${openAyudaWhatsAppNumber}?text=${encodeURIComponent(`Hola, vi "${openExternalAyuda?.title}" en Pereira Unida${openExternalAyuda ? ` (vía ${EXTERNAL_FUENTE_LABELS[openExternalAyuda.fuente]})` : ""} y quiero ayudar.`)}`
     : null;
   const openRoad = activeRoads.find((road) => road.id === openRoadId) ?? null;
   const roadPopupPoint = openRoad?.path[Math.floor(openRoad.path.length / 2)] ?? null;
@@ -557,6 +579,47 @@ export default function ReportsMap({
     const retry = window.setTimeout(run, 250);
     return () => window.clearTimeout(retry);
   }, [fitRentals, rentalFitKey, selectedRental, geolocatedRentals]);
+
+  // Vista "Puntos de acopio": sin esto, el mapa se queda en el pan/zoom que
+  // traía de la vista anterior y puede no mostrar ni un pin — encuadra
+  // propios + externos (Ayudas Pereira/Pereira Ayuda) juntos, es el mismo
+  // tipo de lugar en el mapa.
+  const pointsFitKey = `${fitPoints ? 1 : 0}:${geolocatedPoints.map((p) => p.id).join(",")}:${geolocatedExternalCentros.map((c) => c.id).join(",")}`;
+
+  useEffect(() => {
+    if (!fitPoints) {
+      lastPointsFitKey.current = "";
+      return;
+    }
+    if (openExternalCentroId || openPointId) return;
+    const coords = [
+      ...geolocatedPoints.map((p) => [Number(p.lng), Number(p.lat)] as [number, number]),
+      ...geolocatedExternalCentros.map((c) => [Number(c.lng), Number(c.lat)] as [number, number]),
+    ];
+    if (coords.length === 0) return;
+    if (pointsFitKey === lastPointsFitKey.current) return;
+    lastPointsFitKey.current = pointsFitKey;
+
+    const run = () => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (coords.length === 1) {
+        map.flyTo({ center: coords[0], zoom: 15, duration: 700 });
+        return;
+      }
+      const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+      for (const coord of coords) bounds.extend(coord);
+      map.fitBounds(bounds, {
+        padding: { top: 88, bottom: 200, left: 36, right: 36 },
+        maxZoom: 14,
+        duration: 800,
+      });
+    };
+
+    run();
+    const retry = window.setTimeout(run, 250);
+    return () => window.clearTimeout(retry);
+  }, [fitPoints, pointsFitKey, openExternalCentroId, openPointId, geolocatedPoints, geolocatedExternalCentros]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -795,10 +858,10 @@ export default function ReportsMap({
             >
               <MapPinMarker
                 emoji="📦"
-                color={EXTERNAL_FUENTE_COLORS.ayudas_pereira}
+                color={EXTERNAL_FUENTE_COLORS[centro.fuente]}
                 selected={centro.id === openExternalCentroId}
                 dimmed={!centro.abierto}
-                label={`Punto de acopio (Ayudas Pereira): ${centro.nombre}`}
+                label={`Punto de acopio (${EXTERNAL_FUENTE_LABELS[centro.fuente]}): ${centro.nombre}`}
               />
             </Marker>
           );
@@ -813,7 +876,7 @@ export default function ReportsMap({
               <Marker key={`ayuda-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
                 <ClusterMarker
                   count={count}
-                  color={EXTERNAL_FUENTE_COLORS.corag}
+                  color={clusterRepresentativeColor(ayudaClusters.index, clusterId, externalAyudasById)}
                   onClick={() => {
                     const map = mapRef.current;
                     if (!map) return;
@@ -847,9 +910,9 @@ export default function ReportsMap({
             >
               <MapPinMarker
                 emoji={AYUDA_EMOJI[ayuda.tipo]}
-                color={EXTERNAL_FUENTE_COLORS.corag}
+                color={EXTERNAL_FUENTE_COLORS[ayuda.fuente]}
                 selected={ayuda.id === openExternalAyudaId}
-                label={`${ayuda.tipo === "request" ? "Pide ayuda" : "Ofrece ayuda"} (Corag): ${ayuda.title}`}
+                label={`${ayuda.tipo === "request" ? "Pide ayuda" : "Ofrece ayuda"} (${EXTERNAL_FUENTE_LABELS[ayuda.fuente]}): ${ayuda.title}`}
               />
             </Marker>
           );
@@ -864,7 +927,11 @@ export default function ReportsMap({
               <Marker key={`afectacion-cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
                 <ClusterMarker
                   count={count}
-                  color={EXTERNAL_FUENTE_COLORS.pereira_responde}
+                  color={clusterRepresentativeColor(
+                    afectacionClusters.index,
+                    clusterId,
+                    externalAfectacionesById
+                  )}
                   onClick={() => {
                     const map = mapRef.current;
                     if (!map) return;
@@ -898,10 +965,10 @@ export default function ReportsMap({
             >
               <MapPinMarker
                 emoji={AFECTACION_EMOJI[afectacion.tipo]}
-                color={EXTERNAL_FUENTE_COLORS.pereira_responde}
+                color={EXTERNAL_FUENTE_COLORS[afectacion.fuente]}
                 selected={afectacion.id === openExternalAfectacionId}
                 dimmed={afectacion.gravedad !== "alta"}
-                label={`Afectación (Pereira Responde): ${afectacion.title}`}
+                label={`Afectación (${EXTERNAL_FUENTE_LABELS[afectacion.fuente]}): ${afectacion.title}`}
               />
             </Marker>
           );
@@ -1056,7 +1123,7 @@ export default function ReportsMap({
               {openExternalCentro.direccion ? (
                 <p className="text-ink-soft">{openExternalCentro.direccion}</p>
               ) : null}
-              <FuenteBadge fuente="ayudas_pereira" />
+              <FuenteBadge fuente={openExternalCentro.fuente} />
               {googleMapsUrl(openExternalCentro.lat, openExternalCentro.lng) ? (
                 <a
                   href={googleMapsUrl(openExternalCentro.lat, openExternalCentro.lng) ?? undefined}
@@ -1100,7 +1167,7 @@ export default function ReportsMap({
               {openExternalAyuda.address ? (
                 <p className="text-ink-soft">{openExternalAyuda.address}</p>
               ) : null}
-              <FuenteBadge fuente="corag" />
+              <FuenteBadge fuente={openExternalAyuda.fuente} />
               {openAyudaWhatsAppHref ? (
                 <a
                   href={openAyudaWhatsAppHref}
@@ -1119,7 +1186,7 @@ export default function ReportsMap({
                   rel="noopener noreferrer"
                   className="flex w-full items-center justify-center gap-1 rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
                 >
-                  Ver en Corag
+                  Ver en {EXTERNAL_FUENTE_LABELS[openExternalAyuda.fuente]}
                 </a>
               ) : null}
             </div>
@@ -1159,7 +1226,7 @@ export default function ReportsMap({
                   {openExternalAfectacion.photo_count} foto{openExternalAfectacion.photo_count === 1 ? "" : "s"}
                 </p>
               ) : null}
-              <FuenteBadge fuente="pereira_responde" />
+              <FuenteBadge fuente={openExternalAfectacion.fuente} />
             </div>
           </Popup>
         )}
@@ -1279,17 +1346,36 @@ export default function ReportsMap({
 
       {activeRoads.length > 0 && (
         <div className="absolute left-3 bottom-[calc(var(--sheet-current)+var(--dock-offset)+3.4rem)] z-10 lg:bottom-[calc(var(--dock-height)+3.6rem)]">
-          <div className="glass flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-ink">
-            <span
-              className="inline-block h-1.5 w-6 rounded-full"
-              style={{
-                backgroundImage: `repeating-linear-gradient(90deg, ${ROAD_HAZARD_RED} 0 7px, ${ROAD_HAZARD_YELLOW} 7px 12px)`,
-              }}
-              aria-hidden="true"
-            />
-            {activeRoads.length} vía{activeRoads.length === 1 ? "" : "s"} cerrada
-            {activeRoads.length === 1 ? "" : "s"}
-          </div>
+          {onShowClosedRoads ? (
+            <button
+              type="button"
+              onClick={onShowClosedRoads}
+              aria-label={`Ver ${activeRoads.length} vía${activeRoads.length === 1 ? "" : "s"} cerrada${activeRoads.length === 1 ? "" : "s"} en la lista`}
+              className="glass flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-ink transition active:scale-[0.97]"
+            >
+              <span
+                className="inline-block h-1.5 w-6 shrink-0 rounded-full"
+                style={{
+                  backgroundImage: `repeating-linear-gradient(90deg, ${ROAD_HAZARD_RED} 0 7px, ${ROAD_HAZARD_YELLOW} 7px 12px)`,
+                }}
+                aria-hidden="true"
+              />
+              {activeRoads.length} vía{activeRoads.length === 1 ? "" : "s"} cerrada
+              {activeRoads.length === 1 ? "" : "s"}
+            </button>
+          ) : (
+            <div className="glass flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold text-ink">
+              <span
+                className="inline-block h-1.5 w-6 shrink-0 rounded-full"
+                style={{
+                  backgroundImage: `repeating-linear-gradient(90deg, ${ROAD_HAZARD_RED} 0 7px, ${ROAD_HAZARD_YELLOW} 7px 12px)`,
+                }}
+                aria-hidden="true"
+              />
+              {activeRoads.length} vía{activeRoads.length === 1 ? "" : "s"} cerrada
+              {activeRoads.length === 1 ? "" : "s"}
+            </div>
+          )}
         </div>
       )}
 

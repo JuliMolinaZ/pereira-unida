@@ -111,7 +111,9 @@ export default function RentalAdminPanel({
     <div>
       <p className="mb-3 text-[13px] leading-snug text-ink-soft">
         Pega aquí las filas del Excel o Google Forms, incluida la fila de encabezados.
-        Ubicamos cada dirección en el mapa y luego las publicamos.
+        Ubicamos cada dirección en el mapa y luego las publicamos. Si el archivo trae una
+        columna de fotos (una o varias URLs por celda, separadas por espacio o coma), se
+        publican junto con cada vivienda — ideal para cargar el catálogo de una inmobiliaria.
       </p>
 
       <textarea
@@ -170,6 +172,9 @@ export default function RentalAdminPanel({
                   : row.geo === "ok"
                     ? "Pin listo"
                     : "Sin pin — se verá en la lista"}
+                {row.photo_urls && row.photo_urls.length > 0
+                  ? ` · 📷 ${row.photo_urls.length} foto${row.photo_urls.length === 1 ? "" : "s"}`
+                  : " · sin fotos"}
               </p>
             </article>
           ))}

@@ -78,6 +78,10 @@ export default function SupportFab({ className }: { className?: string }) {
                 </span>
               </span>
             </a>
+            <p className="mt-1 border-t border-ink/10 px-2.5 pt-2 text-[10.5px] leading-snug text-ink/50">
+              Pereira Unida es un proyecto ciudadano, sin ánimo de lucro. Escribinos por acá si algo
+              no cuadra técnicamente o querés pedir que se borre un dato personal tuyo.
+            </p>
           </div>
         </>
       ) : null}
