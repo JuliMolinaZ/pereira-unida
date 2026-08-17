@@ -91,7 +91,14 @@ export default function ClosedRoadModal({
       onClose();
     }
     function handleBackdropClick(e: MouseEvent) {
-      if (e.target === dialog) dialogRef.current?.close();
+      if (e.target !== dialog) return;
+      const rect = dialog!.getBoundingClientRect();
+      const insidePanel =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!insidePanel) dialogRef.current?.close();
     }
     dialog.addEventListener("close", handleClose);
     dialog.addEventListener("click", handleBackdropClick);
@@ -107,7 +114,7 @@ export default function ClosedRoadModal({
     <dialog
       ref={dialogRef}
       aria-labelledby="closed-road-title"
-      className="glass m-0 mt-auto w-full max-w-lg rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
+      className="glass m-0 mt-auto flex w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
     >
       <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-black/20 dark:bg-white/25" />
       <div className="flex items-center justify-between px-4 pt-2 pb-2">
@@ -126,7 +133,7 @@ export default function ClosedRoadModal({
 
       <form
         action={formAction}
-        className="max-h-[min(82dvh,760px)] space-y-4 overflow-y-auto px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+        className="sheet-scroll min-h-0 flex-1 space-y-4 overscroll-contain px-4 pt-1 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
         <CityBanner city={city} action="via" onChange={onChangeCity} />
         <div>

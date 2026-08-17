@@ -10,12 +10,14 @@ import {
   getSupabaseConfigError,
   SUPABASE_CONFIG_ERROR_MESSAGE,
 } from "@/lib/supabase/config";
-import { getPrivilegedSupabaseClient, getPrivilegedSupabaseOrError } from "@/lib/supabase/privileged";
+import { getPrivilegedSupabaseOrError } from "@/lib/supabase/privileged";
 import {
   CATEGORY_EMOJI,
   HELP_SKILLS,
   HELP_SKILL_LABELS,
   isClosedStatus,
+  SERVICE_KINDS,
+  SERVICE_SEVERITIES,
   type ClosedRoad,
   type ClosedRoadReason,
   type ClosedRoadStatus,
@@ -37,6 +39,10 @@ import {
   type ReportCategory,
   type ReportStatus,
   type RoadPoint,
+  type ServiceKind,
+  type ServiceOutage,
+  type ServiceOutageSeverity,
+  type ServiceOutageStatus,
   type UrgentLevel,
 } from "@/lib/types";
 import {
@@ -46,6 +52,8 @@ import {
   MAX_PHOTO_BYTES,
   MAX_PHOTOS_PER_ENTRY,
   MAX_RENTAL_PHOTOS,
+  MAX_ACOPIO_PHOTOS,
+  MAX_OUTAGE_PHOTOS,
   normalizePhotoUrls,
   PHOTO_BUCKET,
 } from "@/lib/photos";
@@ -54,7 +62,7 @@ import { isPushConfigured, notifySubscribers, type PushTopic } from "@/lib/push"
 import { formatCop, SITE_URL } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { sanitizeFreeText } from "@/lib/sanitize";
-import { DEFAULT_DEPARTMENT, inColombia, isKnownCityName } from "@/lib/regions";
+import { DEFAULT_DEPARTMENT, EJE_CAFETERO_BBOX, inColombia, isKnownCityName } from "@/lib/regions";
 import { parseMonthlyRent } from "@/lib/rentals";
 
 const VALID_CATEGORIES: ReportCategory[] = [
@@ -117,6 +125,15 @@ function isMissingClosedRoadsTable(message: string | undefined): boolean {
   return (
     lower.includes("closed_roads") ||
     (lower.includes("schema cache") && lower.includes("closed"))
+  );
+}
+
+function isMissingServiceOutagesTable(message: string | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("service_outages") ||
+    (lower.includes("schema cache") && lower.includes("service_outages"))
   );
 }
 
@@ -184,6 +201,7 @@ const EMPTY_HOME = {
   roads: [] as ClosedRoad[],
   offers: [] as HelpOffer[],
   rentals: [] as Rental[],
+  outages: [] as ServiceOutage[],
   externalCentros: [] as ExternalCentro[],
   externalAyudas: [] as ExternalAyuda[],
   externalAfectaciones: [] as ExternalAfectacion[],
@@ -341,7 +359,7 @@ function photoContentType(kind: "jpeg" | "png" | "webp" | "heic"): string {
  */
 async function uploadFormPhotos(
   client: SupabaseClient,
-  folder: "reports" | "people" | "rentals",
+  folder: "reports" | "people" | "rentals" | "acopio" | "servicios",
   formData: FormData,
   maxPhotos = MAX_PHOTOS_PER_ENTRY
 ): Promise<{ urls: string[]; error?: string }> {
@@ -838,7 +856,7 @@ export async function getCollectionPoints(): Promise<CollectionPoint[]> {
       console.error("getCollectionPoints error:", error.message);
       return [];
     }
-    return (data ?? []) as CollectionPoint[];
+    return (data ?? []).map(normalizeCollectionPoint);
   } catch (err) {
     console.error("getCollectionPoints error:", err instanceof Error ? err.message : err);
     return [];
@@ -886,7 +904,7 @@ export async function getHomeData(
 
   try {
     const loadSide = async (
-      table: "collection_points" | "closed_roads" | "help_offers" | "rentals",
+      table: "collection_points" | "closed_roads" | "help_offers" | "rentals" | "service_outages",
       orderCol: string,
       ascending: boolean
     ) => {
@@ -929,12 +947,26 @@ export async function getHomeData(
     // wifi) en celulares de gama baja. 120 alcanza para lo que se ve al
     // entrar; el resto llega solo si esa fuente sigue creciendo mucho más.
     const EXTERNAL_ROW_LIMIT = 120;
-    const loadExternal = async (table: "external_centros" | "external_ayudas" | "external_afectaciones") =>
-      sb.client!
+    // Pereira/Dosquebradas (zona sin municipio propio, solo departamento
+    // Risaralda) acotan las fuentes externas al Eje Cafetero — si no, esos
+    // 120 cupos se los comen reportes de todo el país (Bogotá, Medellín...)
+    // y el usuario en Pereira ve "todo Colombia" en vez de su zona.
+    const scopeExternalToEjeCafetero = zone.department === DEFAULT_DEPARTMENT && !zone.municipality;
+    const loadExternal = async (table: "external_centros" | "external_ayudas" | "external_afectaciones") => {
+      let query = sb.client!
         .from(table)
         .select("*")
         .order("synced_at", { ascending: false })
         .limit(EXTERNAL_ROW_LIMIT);
+      if (scopeExternalToEjeCafetero) {
+        query = query
+          .gte("lat", EJE_CAFETERO_BBOX.south)
+          .lte("lat", EJE_CAFETERO_BBOX.north)
+          .gte("lng", EJE_CAFETERO_BBOX.west)
+          .lte("lng", EJE_CAFETERO_BBOX.east);
+      }
+      return query;
+    };
 
     // Los activos son el dato de seguridad: nunca se recortan por un tope
     // bajo, porque una solicitud real quedando afuera del límite es gente
@@ -961,20 +993,21 @@ export async function getHomeData(
       return { rows: [...active.rows, ...closed.rows], error: closed.error };
     };
 
-    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes, externalCentrosRes, externalAyudasRes, externalAfectacionesRes] =
+    const [reportsPack, pointsRes, roadsRes, offersRes, rentalsRes, outagesRes, externalCentrosRes, externalAyudasRes, externalAfectacionesRes] =
       await Promise.all([
         loadReportsSplit(),
         loadSide("collection_points", "name", true),
         loadSide("closed_roads", "created_at", false),
         loadSide("help_offers", "created_at", false),
         loadRentals(),
+        loadSide("service_outages", "created_at", false),
         loadExternal("external_centros"),
         loadExternal("external_ayudas"),
         loadExternal("external_afectaciones"),
       ]);
 
     const reports = reportsPack.rows;
-    const points = (pointsRes.data ?? []) as CollectionPoint[];
+    const points = ((pointsRes.data ?? []) as CollectionPoint[]).map(normalizeCollectionPoint);
     const roadsMissing = isMissingClosedRoadsTable(roadsRes.error?.message);
     const roads = roadsMissing ? [] : ((roadsRes.data ?? []) as ClosedRoad[]);
     const offersMissing = isMissingHelpOffersTable(offersRes.error?.message);
@@ -985,6 +1018,10 @@ export async function getHomeData(
       : ((rentalsRes.data ?? []) as Record<string, unknown>[]).map((row) =>
           normalizeRental(row as unknown as Rental & { rental_comments?: unknown })
         );
+    const outagesMissing = isMissingServiceOutagesTable(outagesRes.error?.message);
+    const outages = outagesMissing
+      ? []
+      : ((outagesRes.data ?? []) as ServiceOutage[]).map(normalizeServiceOutage);
     // Fuentes externas: opcionales y aditivas. Si la migración todavía no se
     // aplicó (tabla inexistente) o hay un hiccup puntual, no tumban la home
     // ni el mensaje de error — simplemente no aparecen hasta que se resuelva.
@@ -1004,6 +1041,7 @@ export async function getHomeData(
       (roadsMissing ? null : roadsRes.error?.message) ??
       (offersMissing ? null : offersRes.error?.message) ??
       (rentalsMissing ? null : rentalsRes.error?.message) ??
+      (outagesMissing ? null : outagesRes.error?.message) ??
       null;
 
     if (rawError) {
@@ -1014,6 +1052,7 @@ export async function getHomeData(
         roads,
         offers,
         rentals,
+        outages,
         externalCentros,
         externalAyudas,
         externalAfectaciones,
@@ -1027,6 +1066,7 @@ export async function getHomeData(
       roads,
       offers,
       rentals,
+      outages,
       externalCentros,
       externalAyudas,
       externalAfectaciones,
@@ -1401,6 +1441,145 @@ export async function createClosedRoad(
   return { success: true, data: data as ClosedRoad };
 }
 
+const VALID_OUTAGE_STATUSES: ServiceOutageStatus[] = ["reportado", "en_atencion", "resuelto"];
+
+export async function getServiceOutages(): Promise<ServiceOutage[]> {
+  const sb = getSupabaseOrError();
+  if (!sb.client) return [];
+  try {
+    const { data, error } = await sb.client
+      .from("service_outages")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      if (isMissingServiceOutagesTable(error.message)) return [];
+      console.error("getServiceOutages error:", error.message);
+      return [];
+    }
+    return ((data ?? []) as ServiceOutage[]).map(normalizeServiceOutage);
+  } catch (err) {
+    console.error("getServiceOutages error:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+export async function createServiceOutage(
+  formData: FormData
+): Promise<ActionResult<ServiceOutage>> {
+  const service = String(formData.get("service") ?? "") as ServiceKind;
+  const severity = String(formData.get("severity") ?? "") as ServiceOutageSeverity;
+  const description = sanitizeFreeText(String(formData.get("description") ?? "").trim());
+  const address = sanitizeFreeText(String(formData.get("address") ?? "").trim());
+  const contact = String(formData.get("contact") ?? "").trim();
+  const place = parseCityFields(formData);
+  if ("error" in place) return { success: false, error: place.error };
+  const { municipality, department } = place;
+  const latRaw = formData.get("lat");
+  const lngRaw = formData.get("lng");
+  const lat = latRaw ? Number(latRaw) : NaN;
+  const lng = lngRaw ? Number(lngRaw) : NaN;
+
+  if (!SERVICE_KINDS.includes(service)) {
+    return { success: false, error: "Elige el servicio dañado." };
+  }
+  if (!SERVICE_SEVERITIES.includes(severity)) {
+    return { success: false, error: "Indica qué tan grave es: peligro, corte de sector o falla puntual." };
+  }
+  if (!description) {
+    return { success: false, error: "Cuenta qué pasó: poste caído, sin luz, fuga..." };
+  }
+  if (!address) {
+    return { success: false, error: "Marca el punto en el mapa o escribe la dirección." };
+  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { success: false, error: "Marca el punto exacto en el mapa." };
+  }
+  if (!inColombia(lat, lng)) {
+    return { success: false, error: "La ubicación debe estar en Colombia." };
+  }
+
+  const allowed = await checkRateLimit("createServiceOutage", 8, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const turnstile = await verifyTurnstileToken(
+    String(formData.get("turnstile_token") ?? ""),
+    await getClientIp()
+  );
+  if (!turnstile.ok) return { success: false, error: turnstile.error };
+
+  const sb = getPrivilegedSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const photos = await uploadFormPhotos(sb.client, "servicios", formData, MAX_OUTAGE_PHOTOS);
+  if (photos.error) return { success: false, error: photos.error };
+
+  const { data, error } = await insertRow(sb.client, "service_outages", {
+    service,
+    severity,
+    description: description.slice(0, 400),
+    address: address.slice(0, 200),
+    municipality,
+    department,
+    contact: contact.slice(0, 80),
+    photo_urls: photos.urls,
+    lat,
+    lng,
+    status: "reportado",
+  });
+
+  if (error) {
+    return {
+      success: false,
+      error: isMissingServiceOutagesTable(error.message)
+        ? "Falta crear la tabla de daños de servicios en Supabase (migración service_outages)."
+        : explainPhotoFailure(classifyHomeDataError(error.message)),
+    };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: normalizeServiceOutage(data as ServiceOutage) };
+}
+
+export async function updateServiceOutageStatus(
+  id: string,
+  status: ServiceOutageStatus
+): Promise<ActionResult<ServiceOutage>> {
+  if (!UUID_RE.test(id)) return { success: false, error: "Reporte inválido." };
+  if (!VALID_OUTAGE_STATUSES.includes(status)) {
+    return { success: false, error: "Estado inválido." };
+  }
+
+  const allowed = await checkRateLimit("updateServiceOutageStatus", 12, 60_000);
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+    };
+  }
+
+  const sb = getPrivilegedSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const { data, error } = await sb.client
+    .from("service_outages")
+    .update({ status })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return { success: false, error: classifyHomeDataError(error.message) };
+  }
+
+  revalidatePath("/");
+  return { success: true, data: normalizeServiceOutage(data as ServiceOutage) };
+}
+
 export async function reopenClosedRoad(
   id: string
 ): Promise<ActionResult<ClosedRoad>> {
@@ -1516,21 +1695,16 @@ export async function hideHelpOffer(id: string): Promise<ActionResult<HelpOffer>
 }
 
 /**
- * Crea un centro de acopio nuevo. Protegido por un PIN compartido
- * (ACOPIO_PIN, comparado en tiempo constante) en vez de autenticación de
- * usuario, para mantener el flujo sin cuentas. Si SUPABASE_SERVICE_ROLE_KEY
- * está configurada, inserta con esa clave (bypass de RLS controlado en el
- * server); si no, usa la clave anon y la única barrera real es el PIN.
+ * Crea un centro de acopio. Cualquiera puede publicar (con Turnstile y
+ * rate limit, igual que pedidos y arriendos). Si llega un PIN de
+ * organizadores, se salta el captcha para la ruta interna `/a/...`.
  */
 export async function createCollectionPoint(
   formData: FormData
 ): Promise<ActionResult<CollectionPoint>> {
-  if (getAcopioSecrets().length === 0) {
-    return { success: false, error: "Alta de acopio deshabilitada." };
-  }
-
   const pin = String(formData.get("pin") ?? "");
-  if (!matchesAcopioSecret(pin)) {
+  const isOrganizer = pin.length > 0 && matchesAcopioSecret(pin);
+  if (pin.length > 0 && !isOrganizer) {
     return { success: false, error: "PIN incorrecto." };
   }
 
@@ -1542,34 +1716,35 @@ export async function createCollectionPoint(
     };
   }
 
-  const name = String(formData.get("name") ?? "").trim();
-  const address = String(formData.get("address") ?? "").trim();
+  if (!isOrganizer) {
+    const turnstile = await verifyTurnstileToken(
+      String(formData.get("turnstile_token") ?? ""),
+      await getClientIp()
+    );
+    if (!turnstile.ok) return { success: false, error: turnstile.error };
+  }
+
+  const name = sanitizeFreeText(String(formData.get("name") ?? "").trim());
+  const address = sanitizeFreeText(String(formData.get("address") ?? "").trim());
+  const description = sanitizeFreeText(String(formData.get("description") ?? "").trim());
   const place = parseCityFields(formData);
   if ("error" in place) return { success: false, error: place.error };
   const { municipality, department } = place;
-  const suppliesRaw = String(formData.get("supplies_needed") ?? "");
-  const suppliesNeeded = suppliesRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const surplusRaw = String(formData.get("supplies_surplus") ?? "");
-  const suppliesSurplus = surplusRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const suppliesNeeded = parseSupplyList(formData.get("supplies_needed"));
+  const suppliesSurplus = parseSupplyList(formData.get("supplies_surplus"));
   const openHours = String(formData.get("open_hours") ?? "").trim();
   const contact = String(formData.get("contact") ?? "").trim();
   const latRaw = formData.get("lat");
   const lngRaw = formData.get("lng");
 
   if (!name) return { success: false, error: "El nombre es obligatorio." };
-  if (!address)
-    return { success: false, error: "La dirección es obligatoria." };
+  if (!address) return { success: false, error: "La dirección es obligatoria." };
+  if (contact.replace(/\D/g, "").length < 7) {
+    return { success: false, error: "Escribe un WhatsApp o teléfono de contacto." };
+  }
 
-  // La URL de Supabase es la misma para el cliente anon y el de service
-  // role: si es un placeholder, ambos van a fallar en fetch igual.
-  const cfg = getSupabaseConfigError();
-  if (cfg) return { success: false, error: cfg };
+  const sb = getPrivilegedSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
 
   const lat = latRaw ? Number(latRaw) : NaN;
   const lng = lngRaw ? Number(lngRaw) : NaN;
@@ -1580,50 +1755,46 @@ export async function createCollectionPoint(
     return { success: false, error: "La ubicación debe estar en Colombia." };
   }
 
-  const supabase = getPrivilegedSupabaseClient();
+  const photos = await uploadFormPhotos(sb.client, "acopio", formData, MAX_ACOPIO_PHOTOS);
+  if (photos.error) return { success: false, error: photos.error };
 
-  const { data, error } = await insertRow(supabase, "collection_points", {
-    name,
-    address,
+  const payload = {
+    name: name.slice(0, 160),
+    address: address.slice(0, 200),
+    description: description.slice(0, 500),
     municipality,
     department,
     supplies_needed: suppliesNeeded,
     supplies_surplus: suppliesSurplus,
-    open_hours: openHours,
-    contact,
+    open_hours: openHours.slice(0, 80),
+    contact: contact.slice(0, 80),
+    photo_urls: photos.urls,
     lat,
     lng,
-  });
+  };
 
-  let finalData = data;
-  let finalError = error;
-  if (finalError && /supplies_surplus/i.test(finalError.message)) {
-    ({ data: finalData, error: finalError } = await insertRow(supabase, "collection_points", {
-      name,
-      address,
-      municipality,
-      department,
-      supplies_needed: suppliesNeeded,
-      open_hours: openHours,
-      contact,
-      lat,
-      lng,
-    }));
+  let { data, error } = await insertRow(sb.client, "collection_points", payload);
+  if (error && /photo_urls|description/i.test(error.message)) {
+    const { photo_urls: _photos, description: _desc, ...withoutExtras } = payload;
+    ({ data, error } = await insertRow(sb.client, "collection_points", withoutExtras));
+  }
+  if (error && /supplies_surplus/i.test(error.message)) {
+    const { supplies_surplus: _surplus, photo_urls: _photos, description: _desc, ...minimal } = payload;
+    ({ data, error } = await insertRow(sb.client, "collection_points", minimal));
   }
 
-  if (finalError) {
-    return { success: false, error: finalError.message };
+  if (error) {
+    return { success: false, error: explainPhotoFailure(classifyHomeDataError(error.message)) };
   }
 
   revalidatePath("/");
-  return { success: true, data: finalData as CollectionPoint };
+  return { success: true, data: normalizeCollectionPoint(data as CollectionPoint) };
 }
 
 /**
- * Actualiza qué le falta y qué le sobra a un centro de acopio ya existente
- * (mismo PIN que la creación). El balance se queda viejo rápido si solo se
- * puede fijar una vez al crear el punto — esto lo mantiene al día sin tener
- * que borrar y volver a publicar el centro entero.
+ * Actualiza qué le falta y qué le sobra a un centro de acopio. Es un wiki
+ * de emergencia (sin cuentas): rate limit + service role. El PIN sigue en
+ * la firma por compatibilidad con la ruta interna, pero ya no es obligatorio.
  */
 export async function updateCollectionPointBalance(
   id: string,
@@ -1632,7 +1803,7 @@ export async function updateCollectionPointBalance(
   suppliesSurplus: string[]
 ): Promise<ActionResult<CollectionPoint>> {
   if (!UUID_RE.test(id)) return { success: false, error: "Centro inválido." };
-  if (!matchesAcopioSecret(pin)) {
+  if (pin.length > 0 && !matchesAcopioSecret(pin)) {
     return { success: false, error: "PIN incorrecto." };
   }
 
@@ -1644,25 +1815,83 @@ export async function updateCollectionPointBalance(
     };
   }
 
-  const supabase = getPrivilegedSupabaseClient();
-  const { data, error } = await supabase
+  const sb = getPrivilegedSupabaseOrError();
+  if (!sb.client) return { success: false, error: sb.error };
+
+  const needed = normalizeSupplyArray(suppliesNeeded);
+  const surplus = normalizeSupplyArray(suppliesSurplus);
+
+  let { data, error } = await sb.client
     .from("collection_points")
-    .update({ supplies_needed: suppliesNeeded, supplies_surplus: suppliesSurplus })
+    .update({ supplies_needed: needed, supplies_surplus: surplus })
     .eq("id", id)
     .select()
     .single();
+  if (error && /supplies_surplus/i.test(error.message)) {
+    ({ data, error } = await sb.client
+      .from("collection_points")
+      .update({ supplies_needed: needed })
+      .eq("id", id)
+      .select()
+      .single());
+  }
 
   if (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: classifyHomeDataError(error.message) };
   }
 
   revalidatePath("/");
-  return { success: true, data: data as CollectionPoint };
+  return { success: true, data: normalizeCollectionPoint(data as CollectionPoint) };
 }
 
 function toCoord(value: unknown): number | null {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function normalizeSupplyArray(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    const item = String(raw ?? "").trim().slice(0, 40);
+    if (!item) continue;
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function parseSupplyList(value: FormDataEntryValue | null): string[] {
+  return normalizeSupplyArray(String(value ?? "").split(","));
+}
+
+function normalizeCollectionPoint(row: CollectionPoint): CollectionPoint {
+  return {
+    ...row,
+    supplies_needed: normalizeSupplyArray(row.supplies_needed),
+    supplies_surplus: normalizeSupplyArray(row.supplies_surplus),
+    description: typeof row.description === "string" ? row.description : "",
+    photo_urls: normalizePhotoUrls(row.photo_urls, MAX_ACOPIO_PHOTOS),
+    lat: toCoord(row.lat),
+    lng: toCoord(row.lng),
+  };
+}
+
+function normalizeServiceOutage(row: ServiceOutage): ServiceOutage {
+  return {
+    ...row,
+    description: typeof row.description === "string" ? row.description : "",
+    address: typeof row.address === "string" ? row.address : "",
+    contact: typeof row.contact === "string" ? row.contact : "",
+    photo_urls: normalizePhotoUrls(row.photo_urls, MAX_OUTAGE_PHOTOS),
+    lat: toCoord(row.lat),
+    lng: toCoord(row.lng),
+    status: VALID_OUTAGE_STATUSES.includes(row.status) ? row.status : "reportado",
+  };
 }
 
 function normalizeRental(

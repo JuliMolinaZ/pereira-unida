@@ -71,7 +71,14 @@ export default function InstallButton() {
       setShowIosHelp(false);
     }
     function handleBackdropClick(e: MouseEvent) {
-      if (e.target === dialog) dialogRef.current?.close();
+      if (e.target !== dialog) return;
+      const rect = dialog!.getBoundingClientRect();
+      const insidePanel =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!insidePanel) dialogRef.current?.close();
     }
     dialog.addEventListener("close", handleClose);
     dialog.addEventListener("click", handleBackdropClick);

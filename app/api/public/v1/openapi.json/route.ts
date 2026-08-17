@@ -41,6 +41,10 @@ const spec = {
   tags: [
     { name: "Ayudas", description: "Solicitudes de ayuda (necesidades reportadas)." },
     { name: "Ayudantes", description: "Ofertas de ayuda (personas/oficios disponibles)." },
+    {
+      name: "Servicios",
+      description: "Daños de energía, postes, agua, gas e internet para cuadrillas.",
+    },
   ],
   paths: {
     "/api/public/v1/ayudas": {
@@ -225,6 +229,165 @@ const spec = {
         },
       },
     },
+    "/api/public/v1/servicios": {
+      get: {
+        tags: ["Servicios"],
+        summary: "Listar daños de servicios públicos",
+        description:
+          "Reportes de postes, energía, agua, gas e internet. Pensado para dashboards de cuadrillas. " +
+          "Siempre viene ordenado por severidad (peligro_critico primero) y luego por fecha. " +
+          "Nunca incluye teléfonos. Usa format=csv para abrir en Excel.",
+        parameters: [
+          { name: "municipio", in: "query", schema: { type: "string" } },
+          { name: "departamento", in: "query", schema: { type: "string" } },
+          {
+            name: "servicio",
+            in: "query",
+            schema: { type: "string", enum: ["energia", "poste", "agua", "gas", "internet"] },
+          },
+          {
+            name: "severidad",
+            in: "query",
+            description:
+              "peligro_critico = cable vivo o poste cayéndose. corte_sector = barrio sin servicio. falla_puntual = acometida individual.",
+            schema: {
+              type: "string",
+              enum: ["peligro_critico", "corte_sector", "falla_puntual"],
+            },
+          },
+          {
+            name: "estado",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["abierto", "resuelto", "todos", "reportado", "en_atencion"],
+              default: "abierto",
+            },
+          },
+          {
+            name: "desde",
+            in: "query",
+            schema: { type: "string", format: "date-time" },
+            description: "ISO 8601. Ejemplo: 2026-08-17T00:00:00-05:00 para el día de hoy.",
+          },
+          {
+            name: "format",
+            in: "query",
+            schema: { type: "string", enum: ["json", "csv"], default: "json" },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 100, maximum: 200 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            headers: rateLimitHeaderSchemas,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: { type: "array", items: { $ref: "#/components/schemas/Servicio" } },
+                    count: { type: "integer" },
+                    generated_at: { type: "string", format: "date-time" },
+                  },
+                },
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "429": { $ref: "#/components/responses/TooManyRequests" },
+        },
+      },
+      post: {
+        tags: ["Servicios"],
+        summary: "Reportar un daño de servicio",
+        description:
+          "Crea un daño desde un sistema externo (el de Energía de Pereira, por ejemplo) — mismo modelo " +
+          "de confianza y rate limit que POST /ayudas. lat/lng son obligatorios: sin coordenadas exactas " +
+          "una cuadrilla no puede ubicar el punto en el mapa.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateServicio" },
+              example: {
+                service: "energia",
+                severity: "peligro_critico",
+                description: "Poste caído con cable vivo sobre la vía, cerca al parque.",
+                address: "Cra 8 con Calle 21",
+                municipality: "Pereira",
+                department: "Risaralda",
+                lat: 4.8087,
+                lng: -75.6906,
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Creado",
+            headers: rateLimitHeaderSchemas,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { data: { $ref: "#/components/schemas/Servicio" } },
+                },
+              },
+            },
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "429": { $ref: "#/components/responses/TooManyRequests" },
+        },
+      },
+      patch: {
+        tags: ["Servicios"],
+        summary: "Actualizar el estado de un daño",
+        description:
+          "Pensado para que el sistema de despacho de una cuadrilla (Energía de Pereira, etc.) cierre " +
+          "un reporte cuando lo atiende, sin depender de la web pública.",
+        parameters: [
+          {
+            name: "id",
+            in: "query",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["status"],
+                properties: {
+                  status: {
+                    type: "string",
+                    enum: ["reportado", "en_atencion", "resuelto"],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "OK",
+            headers: rateLimitHeaderSchemas,
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "429": { $ref: "#/components/responses/TooManyRequests" },
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -246,6 +409,10 @@ const spec = {
       TooManyRequests: {
         description: "Rate limit excedido",
         headers: rateLimitHeaderSchemas,
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+      },
+      NotFound: {
+        description: "No existe un recurso con ese id",
         content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
       },
     },
@@ -334,6 +501,50 @@ const spec = {
           },
           municipality: { type: "string" },
           department: { type: "string" },
+        },
+      },
+      Servicio: {
+        type: "object",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          service: { type: "string", enum: ["energia", "poste", "agua", "gas", "internet"] },
+          service_label: { type: "string" },
+          severity: { type: "string", enum: ["peligro_critico", "corte_sector", "falla_puntual"] },
+          severity_label: { type: "string" },
+          description: { type: "string" },
+          address: { type: "string" },
+          municipality: { type: "string" },
+          department: { type: "string", nullable: true },
+          lat: { type: "number", nullable: true },
+          lng: { type: "number", nullable: true },
+          maps_url: { type: "string", format: "uri", nullable: true },
+          photo_urls: { type: "array", items: { type: "string", format: "uri" } },
+          status: { type: "string", enum: ["reportado", "en_atencion", "resuelto"] },
+          status_label: { type: "string" },
+          created_at: { type: "string", format: "date-time" },
+        },
+      },
+      CreateServicio: {
+        type: "object",
+        required: ["service", "severity", "description", "address", "municipality", "lat", "lng"],
+        properties: {
+          service: { type: "string", enum: ["energia", "poste", "agua", "gas", "internet"] },
+          severity: {
+            type: "string",
+            enum: ["peligro_critico", "corte_sector", "falla_puntual"],
+            description:
+              "peligro_critico = cable vivo o poste cayéndose. corte_sector = barrio sin servicio. falla_puntual = acometida individual.",
+          },
+          description: { type: "string", maxLength: 400 },
+          address: { type: "string", maxLength: 200 },
+          municipality: { type: "string", description: "Nombre exacto de un municipio colombiano." },
+          department: { type: "string" },
+          lat: { type: "number" },
+          lng: { type: "number" },
+          contact: {
+            type: "string",
+            description: "Opcional. Nunca se devuelve en ningún GET — solo se usa dentro de la propia app.",
+          },
         },
       },
     },

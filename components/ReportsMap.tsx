@@ -32,6 +32,13 @@ import {
   type ExternalFuente,
   type Rental,
   type Report,
+  type ServiceOutage,
+  SERVICE_KIND_COLORS,
+  SERVICE_KIND_EMOJI,
+  SERVICE_KIND_LABELS,
+  SERVICE_SEVERITY_COLORS,
+  SERVICE_SEVERITY_EMOJI,
+  SERVICE_SEVERITY_SHORT_LABELS,
 } from "@/lib/types";
 import {
   PLACE_COLOR,
@@ -123,12 +130,16 @@ function MapPinMarker({
   color,
   selected = false,
   dimmed = false,
+  urgent = false,
   label,
 }: {
   emoji: string;
   color: string;
   selected?: boolean;
   dimmed?: boolean;
+  /** Punto de peligro de muerte (cable vivo, poste cayéndose): agrega un
+   * badge rojo pulsante para que salte a la vista sobre el resto del mapa. */
+  urgent?: boolean;
   label: string;
 }) {
   const uid = useId().replace(/:/g, "");
@@ -200,6 +211,12 @@ function MapPinMarker({
       >
         {emoji}
       </span>
+      {urgent ? (
+        <span
+          aria-hidden="true"
+          className="animate-pulse absolute top-[-2px] right-[-2px] h-3 w-3 rounded-full border-2 border-white bg-[#a61b1b]"
+        />
+      ) : null}
     </button>
   );
 }
@@ -291,9 +308,11 @@ interface ReportsMapProps {
   externalCentros?: ExternalCentro[];
   externalAyudas?: ExternalAyuda[];
   externalAfectaciones?: ExternalAfectacion[];
+  outages?: ServiceOutage[];
   fitSearchResults?: boolean;
   fitRentals?: boolean;
   fitPoints?: boolean;
+  fitOutages?: boolean;
   selectedReportId: string | null;
   selectedPlaceId?: string | null;
   selectedRentalId?: string | null;
@@ -319,9 +338,11 @@ export default function ReportsMap({
   externalCentros = [],
   externalAyudas = [],
   externalAfectaciones = [],
+  outages = [],
   fitSearchResults = false,
   fitRentals = false,
   fitPoints = false,
+  fitOutages = false,
   selectedReportId,
   selectedPlaceId = null,
   selectedRentalId = null,
@@ -350,6 +371,7 @@ export default function ReportsMap({
   const [openExternalCentroId, setOpenExternalCentroId] = useState<string | null>(null);
   const [openExternalAyudaId, setOpenExternalAyudaId] = useState<string | null>(null);
   const [openExternalAfectacionId, setOpenExternalAfectacionId] = useState<string | null>(null);
+  const [openOutageId, setOpenOutageId] = useState<string | null>(null);
 
   const activeRoads = roads.filter(
     (road) => road.status === "cerrada" && Array.isArray(road.path) && road.path.length >= 2
@@ -369,6 +391,7 @@ export default function ReportsMap({
   const geolocatedReports = useMemo(() => reports.filter(hasMapCoords), [reports]);
   const geolocatedPoints = useMemo(() => points.filter(hasMapCoords), [points]);
   const geolocatedRentals = useMemo(() => rentals.filter(hasMapCoords), [rentals]);
+  const geolocatedOutages = useMemo(() => outages.filter(hasMapCoords), [outages]);
   const geolocatedExternalCentros = useMemo(
     () => externalCentros.filter(hasMapCoords),
     [externalCentros]
@@ -470,6 +493,7 @@ export default function ReportsMap({
   const selectedReport = geolocatedReports.find((r) => r.id === selectedReportId);
   const selectedRental = geolocatedRentals.find((item) => item.id === selectedRentalId);
   const openPoint = geolocatedPoints.find((p) => p.id === openPointId);
+  const openOutage = geolocatedOutages.find((item) => item.id === openOutageId);
   const openExternalCentro = externalCentrosById.get(openExternalCentroId ?? "") ?? null;
   const openExternalAyuda = externalAyudasById.get(openExternalAyudaId ?? "") ?? null;
   const openExternalAfectacion = externalAfectacionesById.get(openExternalAfectacionId ?? "") ?? null;
@@ -579,6 +603,41 @@ export default function ReportsMap({
     const retry = window.setTimeout(run, 250);
     return () => window.clearTimeout(retry);
   }, [fitRentals, rentalFitKey, selectedRental, geolocatedRentals]);
+
+  const outageFitKey = `${fitOutages ? 1 : 0}:${geolocatedOutages.map((item) => item.id).join(",")}`;
+  const lastOutageFitKey = useRef("");
+
+  useEffect(() => {
+    if (!fitOutages) {
+      lastOutageFitKey.current = "";
+      return;
+    }
+    if (openOutageId) return;
+    if (geolocatedOutages.length === 0) return;
+    if (outageFitKey === lastOutageFitKey.current) return;
+    lastOutageFitKey.current = outageFitKey;
+    const coords = geolocatedOutages.map(
+      (item) => [Number(item.lng), Number(item.lat)] as [number, number]
+    );
+    const run = () => {
+      const map = mapRef.current;
+      if (!map) return;
+      if (coords.length === 1) {
+        map.flyTo({ center: coords[0], zoom: 15, duration: 700 });
+        return;
+      }
+      const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+      for (const coord of coords) bounds.extend(coord);
+      map.fitBounds(bounds, {
+        padding: { top: 88, bottom: 200, left: 36, right: 36 },
+        maxZoom: 14,
+        duration: 800,
+      });
+    };
+    run();
+    const retry = window.setTimeout(run, 250);
+    return () => window.clearTimeout(retry);
+  }, [fitOutages, outageFitKey, openOutageId, geolocatedOutages]);
 
   // Vista "Puntos de acopio": sin esto, el mapa se queda en el pan/zoom que
   // traía de la vista anterior y puede no mostrar ni un pin — encuadra
@@ -1027,6 +1086,35 @@ export default function ReportsMap({
           );
         })}
 
+        {geolocatedOutages.map((outage) => (
+          <Marker
+            key={outage.id}
+            latitude={Number(outage.lat)}
+            longitude={Number(outage.lng)}
+            anchor="bottom"
+            offset={[0, 0]}
+            style={{ zIndex: outage.id === openOutageId ? 4 : 2 }}
+            onClick={(e) => {
+              e.originalEvent.stopPropagation();
+              setOpenPointId(null);
+              setOpenPlaceId(null);
+              onSelectPlace?.(null);
+              setOpenOutageId(outage.id);
+            }}
+          >
+            <MapPinMarker
+              emoji={SERVICE_KIND_EMOJI[outage.service]}
+              color={SERVICE_KIND_COLORS[outage.service]}
+              selected={outage.id === openOutageId}
+              dimmed={outage.status === "resuelto"}
+              urgent={outage.severity === "peligro_critico" && outage.status !== "resuelto"}
+              label={`${
+                outage.severity === "peligro_critico" ? "PELIGRO. " : ""
+              }${SERVICE_KIND_LABELS[outage.service]}: ${outage.description}`}
+            />
+          </Marker>
+        ))}
+
         {places.map((place) => (
           <Marker
             key={place.id}
@@ -1050,6 +1138,56 @@ export default function ReportsMap({
             />
           </Marker>
         ))}
+
+        {openOutage && (
+          <Popup
+            latitude={Number(openOutage.lat)}
+            longitude={Number(openOutage.lng)}
+            anchor="bottom"
+            offset={PIN_POPUP_OFFSET}
+            closeButton={false}
+            closeOnClick={false}
+            onClose={() => setOpenOutageId(null)}
+            className="pereira-map-popup"
+          >
+            <div className="min-w-[170px] space-y-1.5 p-0.5 text-xs text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-wide text-ink-soft uppercase">
+                  {SERVICE_KIND_LABELS[openOutage.service]}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenOutageId(null)}
+                  className="text-[11px] font-medium text-ink-soft"
+                >
+                  Cerrar
+                </button>
+              </div>
+              {openOutage.severity === "peligro_critico" ? (
+                <div
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold text-white"
+                  style={{ backgroundColor: SERVICE_SEVERITY_COLORS.peligro_critico }}
+                >
+                  <span aria-hidden="true">{SERVICE_SEVERITY_EMOJI.peligro_critico}</span>
+                  {SERVICE_SEVERITY_SHORT_LABELS.peligro_critico}
+                </div>
+              ) : null}
+              <p className="text-[13px] leading-snug font-semibold">{openOutage.description}</p>
+              {openOutage.address ? <p className="text-ink-soft">{openOutage.address}</p> : null}
+              {googleMapsUrl(openOutage.lat, openOutage.lng) ? (
+                <a
+                  href={googleMapsUrl(openOutage.lat, openOutage.lng) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded-full bg-black/8 px-2 py-1.5 text-[11px] font-semibold"
+                >
+                  <Navigation className="h-3 w-3" aria-hidden="true" />
+                  Cómo llegar
+                </a>
+              ) : null}
+            </div>
+          </Popup>
+        )}
 
         {openPoint && (
           <Popup

@@ -79,6 +79,16 @@ export function isNationwide(city: AppCity | string | null | undefined): boolean
   return id === NATIONAL_CITY_ID;
 }
 
+/** Risaralda + Quindío + Caldas, con margen. Para acotar fuentes externas
+ * nacionales (CORAG, etc.) cuando el usuario está en Pereira/Dosquebradas,
+ * en vez de mostrarle datos de todo el país. */
+export const EJE_CAFETERO_BBOX: GeoBBox = {
+  south: 4.15,
+  north: 5.85,
+  west: -76.3,
+  east: -74.9,
+};
+
 export function inBbox(bbox: GeoBBox, lat: number, lng: number): boolean {
   return lat >= bbox.south && lat <= bbox.north && lng >= bbox.west && lng <= bbox.east;
 }

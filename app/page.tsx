@@ -14,6 +14,7 @@ export default async function Home() {
     externalCentros,
     externalAyudas,
     externalAfectaciones,
+    outages,
     error,
   } = await getHomeData();
 
@@ -27,6 +28,7 @@ export default async function Home() {
       initialExternalCentros={externalCentros}
       initialExternalAyudas={externalAyudas}
       initialExternalAfectaciones={externalAfectaciones}
+      initialOutages={outages}
       dataError={error}
     />
   );

@@ -20,6 +20,7 @@ import {
   googleMapsUrl,
   isReportFromLastHours,
   listShareUrl,
+  rememberMyAcopioId,
   rememberMyOfferId,
   rememberMyRentalId,
 } from "@/lib/utils";
@@ -41,6 +42,8 @@ import {
   type Rental,
   type Report,
   type ReportCategory,
+  type ServiceOutage,
+  SERVICE_KIND_LABELS,
 } from "@/lib/types";
 import {
   matchesHaystack,
@@ -61,6 +64,9 @@ import FilterBar, {
 } from "./FilterBar";
 import DenseReportList from "./DenseReportList";
 import ReportCardSkeleton from "./ReportCardSkeleton";
+import ErrorBoundary from "./ErrorBoundary";
+import ServiceOutages from "./ServiceOutages";
+import ServiceOutageModal from "./ServiceOutageModal";
 import NotificationsPrompt from "./NotificationsPrompt";
 import OfflineBanner from "./OfflineBanner";
 import { isInAppBrowser } from "@/lib/device";
@@ -69,6 +75,8 @@ import {
   cityById,
   DEFAULT_CITY_ID,
   DEFAULT_DEPARTMENT,
+  EJE_CAFETERO_BBOX,
+  inBbox,
   isDefaultZone,
   isNationwide,
   isRisaraldaMetro,
@@ -87,12 +95,12 @@ const ReportsMap = dynamic(() => import("./ReportsMap"), {
 });
 const CollectionPoints = dynamic(() => import("./CollectionPoints"));
 const RequestHelpModal = dynamic(() => import("./RequestHelpModal"));
-const FamilyStatusModal = dynamic(() => import("./FamilyStatusModal"));
 const ClosedRoadModal = dynamic(() => import("./ClosedRoadModal"));
 const HelpOfferModal = dynamic(() => import("./HelpOfferModal"));
 const HelpOffers = dynamic(() => import("./HelpOffers"));
 const Rentals = dynamic(() => import("./Rentals"));
 const RentalFormModal = dynamic(() => import("./RentalFormModal"));
+const CollectionPointModal = dynamic(() => import("./CollectionPointModal"));
 const RentalCard = dynamic(() => import("./RentalCard"));
 const ReportCard = dynamic(() => import("./ReportCard"));
 const RegionPicker = dynamic(() => import("./RegionPicker"));
@@ -118,6 +126,7 @@ const VALID_VISTA_VALUES = new Set<CategoryQuickFilter>([
   "vias_cerradas",
   "ofrezco",
   "arriendos",
+  "servicios",
   "alimentos",
   "herramientas",
   "medicinas",
@@ -214,6 +223,7 @@ interface HomeClientProps {
   initialExternalCentros?: ExternalCentro[];
   initialExternalAyudas?: ExternalAyuda[];
   initialExternalAfectaciones?: ExternalAfectacion[];
+  initialOutages?: ServiceOutage[];
   initialReportId?: string | null;
   dataError?: string | null;
 }
@@ -227,6 +237,7 @@ export default function HomeClient({
   initialExternalCentros = [],
   initialExternalAyudas = [],
   initialExternalAfectaciones = [],
+  initialOutages = [],
   initialReportId = null,
   dataError = null,
 }: HomeClientProps) {
@@ -243,7 +254,7 @@ export default function HomeClient({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [needsCity, setNeedsCity] = useState(false);
   const [pendingAction, setPendingAction] = useState<
-    "report" | "offer" | "family" | "rental" | null
+    "report" | "offer" | "rental" | "acopio" | "servicio" | "servicio_publicar" | null
   >(null);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
   const [category, setCategory] = useState<CategoryQuickFilter>("todos");
@@ -258,13 +269,15 @@ export default function HomeClient({
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedRentalId, setSelectedRentalId] = useState<string | null>(null);
   const [reportModalOpen, setReportModalOpen] = useState(false);
-  const [familyModalOpen, setFamilyModalOpen] = useState(false);
   const [roadModalOpen, setRoadModalOpen] = useState(false);
   const [offerModalOpen, setOfferModalOpen] = useState(false);
   const [rentalModalOpen, setRentalModalOpen] = useState(false);
+  const [acopioModalOpen, setAcopioModalOpen] = useState(false);
+  const [outageModalOpen, setOutageModalOpen] = useState(false);
   const [roads, setRoads] = useState<ClosedRoad[]>(initialRoads);
   const [offers, setOffers] = useState<HelpOffer[]>(initialOffers);
   const [rentals, setRentals] = useState<Rental[]>(initialRentals);
+  const [outages, setOutages] = useState<ServiceOutage[]>(initialOutages);
   const [isPending, startTransition] = useTransition();
   const [appliedInitialReportId, setAppliedInitialReportId] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("map");
@@ -280,12 +293,22 @@ export default function HomeClient({
   const cityRef = useRef(city);
   cityRef.current = city;
 
+  /** En Pereira/Dosquebradas, una fila externa (CORAG, etc.) sin coordenadas
+   * dentro del Eje Cafetero se descarta: si no, el realtime va reintroduciendo
+   * de a poco datos de todo el país aunque la carga inicial ya venga acotada. */
+  function isExternalRowInScope(lat: number | null, lng: number | null): boolean {
+    if (!isRisaraldaMetro(cityRef.current)) return true;
+    if (lat == null || lng == null) return false;
+    return inBbox(EJE_CAFETERO_BBOX, lat, lng);
+  }
+
   const isPointsView = category === "puntos_acopio";
   const isRoadsView = category === "vias_cerradas";
   const isOffersView = category === "ofrezco";
   const isRentalsView = category === "arriendos";
+  const isOutagesView = category === "servicios";
   const shareableCategory =
-    !isPointsView && !isRoadsView && !isOffersView && !isRentalsView && category !== "todos"
+    !isPointsView && !isRoadsView && !isOffersView && !isRentalsView && !isOutagesView && category !== "todos"
       ? (category as ReportCategory)
       : null;
   const showMetroChips = isRisaraldaMetro(city);
@@ -384,6 +407,7 @@ export default function HomeClient({
       setRoads(data.roads ?? []);
       setOffers(data.offers ?? []);
       setRentals(data.rentals ?? []);
+      setOutages(data.outages ?? []);
       setMunicipality("todos");
       setDepartmentFocus("todos");
     });
@@ -539,6 +563,23 @@ export default function HomeClient({
         )
         .on(
           "postgres_changes",
+          { event: "*", schema: "public", table: "service_outages" },
+          (payload) => {
+            if (payload.eventType === "INSERT" && payload.new) {
+              const next = payload.new as ServiceOutage;
+              if (!belongsToActiveZone(next)) return;
+              setOutages((prev) => (prev.some((item) => item.id === next.id) ? prev : [next, ...prev]));
+            } else if (payload.eventType === "UPDATE" && payload.new) {
+              const next = payload.new as ServiceOutage;
+              setOutages((prev) => prev.map((item) => (item.id === next.id ? next : item)));
+            } else if (payload.eventType === "DELETE" && payload.old) {
+              const id = (payload.old as { id?: string }).id;
+              if (id) setOutages((prev) => prev.filter((item) => item.id !== id));
+            }
+          }
+        )
+        .on(
+          "postgres_changes",
           { event: "*", schema: "public", table: "help_offers" },
           (payload) => {
             if (payload.eventType === "INSERT" && payload.new) {
@@ -650,6 +691,7 @@ export default function HomeClient({
             }
             if (payload.new) {
               const next = payload.new as ExternalCentro;
+              if (!isExternalRowInScope(next.lat, next.lng)) return;
               setExternalCentros((prev) =>
                 prev.some((c) => c.id === next.id)
                   ? prev.map((c) => (c.id === next.id ? next : c))
@@ -669,6 +711,7 @@ export default function HomeClient({
             }
             if (payload.new) {
               const next = payload.new as ExternalAyuda;
+              if (!isExternalRowInScope(next.lat, next.lng)) return;
               setExternalAyudas((prev) =>
                 prev.some((a) => a.id === next.id)
                   ? prev.map((a) => (a.id === next.id ? next : a))
@@ -688,6 +731,7 @@ export default function HomeClient({
             }
             if (payload.new) {
               const next = payload.new as ExternalAfectacion;
+              if (!isExternalRowInScope(next.lat, next.lng)) return;
               setExternalAfectaciones((prev) =>
                 prev.some((a) => a.id === next.id)
                   ? prev.map((a) => (a.id === next.id ? next : a))
@@ -725,7 +769,8 @@ export default function HomeClient({
       category !== "puntos_acopio" &&
       category !== "vias_cerradas" &&
       category !== "ofrezco" &&
-      category !== "arriendos"
+      category !== "arriendos" &&
+      category !== "servicios"
     ) {
       base = base.filter((r) => r.category === category);
     }
@@ -826,6 +871,20 @@ export default function HomeClient({
     );
   }, [roads, municipality, isSearching, debouncedSearchQuery]);
 
+  const mapOutages = useMemo(() => {
+    let base = outages.filter((item) => item.status !== "resuelto");
+    if (municipality !== "todos") {
+      base = base.filter((item) => item.municipality === municipality);
+    }
+    if (!isSearching) return base;
+    return base.filter((item) =>
+      matchesHaystack(
+        `${SERVICE_KIND_LABELS[item.service]} ${item.description} ${item.address} ${item.municipality}`,
+        debouncedSearchQuery
+      )
+    );
+  }, [outages, municipality, isSearching, debouncedSearchQuery]);
+
   const mapPoints = isSearching || isPointsView ? visiblePoints : points.filter((p) =>
     municipality === "todos" ? true : p.municipality === municipality
   );
@@ -899,8 +958,12 @@ export default function HomeClient({
     setSheetMode("map");
   }
 
-  function openCityPicker(action?: "report" | "offer" | "family" | "rental") {
-    if (action) setPendingAction(action);
+  function openCityPicker(
+    action?: "report" | "offer" | "rental" | "acopio" | "servicio" | "servicio_publicar"
+  ) {
+    // Siempre pisa el pendingAction, aunque venga sin action (ej. el botón
+    // "Cambiar" de ciudad dentro de cualquier modal).
+    setPendingAction(action ?? null);
     setPickerOpen(true);
   }
 
@@ -919,7 +982,6 @@ export default function HomeClient({
       setCategory("ofrezco");
       setSheetMode("expanded");
     }
-    if (action === "family") setFamilyModalOpen(true);
     if (action === "rental") {
       setPriorityMode(false);
       setCategory("arriendos");
@@ -927,11 +989,26 @@ export default function HomeClient({
       setSelectedPlaceId(null);
       setSheetMode("peek");
     }
+    if (action === "acopio") {
+      setPriorityMode(false);
+      setCategory("puntos_acopio");
+      setSheetMode("expanded");
+      setAcopioModalOpen(true);
+    }
+    if (action === "servicio" || action === "servicio_publicar") {
+      setPriorityMode(false);
+      setCategory("servicios");
+      setSelectedReportId(null);
+      setSelectedPlaceId(null);
+      setSelectedRentalId(null);
+      setSheetMode("peek");
+      if (action === "servicio_publicar") setOutageModalOpen(true);
+    }
   }
 
   function handleWantsToHelp() {
     setPriorityMode(true);
-    if (isPointsView || isRoadsView || isOffersView || isRentalsView) setCategory("todos");
+    if (isPointsView || isRoadsView || isOffersView || isRentalsView || isOutagesView) setCategory("todos");
     setSheetMode("expanded");
     requestAnimationFrame(() => {
       const firstCard = document.querySelector('[id^="report-"]');
@@ -968,6 +1045,20 @@ export default function HomeClient({
     setSheetMode("peek");
   }
 
+  function handleWantsServices() {
+    setPriorityMode(false);
+    setCategory("servicios");
+    setSelectedReportId(null);
+    setSelectedPlaceId(null);
+    setSelectedRentalId(null);
+    setSheetMode("peek");
+    if (needsPlaceToPost) {
+      openCityPicker("servicio_publicar");
+      return;
+    }
+    setOutageModalOpen(true);
+  }
+
   function leaveRentalsIfNeeded() {
     if (!isRentalsView) return;
     setCategory("todos");
@@ -1000,7 +1091,7 @@ export default function HomeClient({
     () => rentals.find((item) => item.id === selectedRentalId) ?? null,
     [rentals, selectedRentalId]
   );
-  const overlayOpen = Boolean(selectedReport || selectedRental);
+  const overlayOpen = Boolean(selectedReport || selectedRental || outageModalOpen);
 
   const showSkeleton = isPending && visibleReports.length === 0;
 
@@ -1018,27 +1109,59 @@ export default function HomeClient({
       <div className="absolute inset-0 z-0">
         {mapReady && zoneReady ? (
           <ReportsMap
-            reports={(isPointsView || isRentalsView) && !isSearching ? [] : visibleReports}
-            points={isRentalsView && !isSearching ? [] : isSpecificCategory ? [] : mapPoints}
-            roads={isRentalsView && !isSearching ? [] : isSpecificCategory ? [] : mapRoads}
+            reports={
+              (isPointsView || isRentalsView || isOutagesView || isRoadsView) && !isSearching
+                ? []
+                : visibleReports
+            }
+            points={
+              (isRentalsView || isOutagesView || isRoadsView) && !isSearching
+                ? []
+                : isSpecificCategory
+                  ? []
+                  : mapPoints
+            }
+            roads={
+              (isRentalsView || isOutagesView || isPointsView) && !isSearching
+                ? []
+                : isSpecificCategory
+                  ? []
+                  : mapRoads
+            }
+            outages={
+              (isPointsView || isRentalsView || isRoadsView) && !isSearching
+                ? []
+                : isSpecificCategory
+                  ? []
+                  : mapOutages
+            }
             places={isSearching ? mapPlaces : []}
             rentals={mapRentals}
             externalCentros={
-              isRentalsView && !isSearching ? [] : isSpecificCategory ? [] : mapExternalCentros
+              (isRentalsView || isOutagesView || isRoadsView) && !isSearching
+                ? []
+                : isSpecificCategory
+                  ? []
+                  : mapExternalCentros
             }
             externalAyudas={
-              (isRentalsView && !isSearching) || !includeExternal || isSpecificCategory
+              ((isRentalsView || isOutagesView || isPointsView || isRoadsView) && !isSearching) ||
+              !includeExternal ||
+              isSpecificCategory
                 ? []
                 : externalAyudas
             }
             externalAfectaciones={
-              (isRentalsView && !isSearching) || !includeExternal || isSpecificCategory
+              ((isRentalsView || isOutagesView || isPointsView) && !isSearching) ||
+              !includeExternal ||
+              isSpecificCategory
                 ? []
                 : externalAfectaciones
             }
             fitSearchResults={isSearching && !selectedPlaceId}
             fitRentals={isRentalsView && !isSearching && !selectedRentalId}
             fitPoints={isPointsView && !isSearching}
+            fitOutages={isOutagesView && !isSearching}
             selectedReportId={selectedReportId}
             selectedPlaceId={selectedPlaceId}
             selectedRentalId={selectedRentalId}
@@ -1123,13 +1246,10 @@ export default function HomeClient({
             else setReportModalOpen(true);
           }}
           onHelpClick={() => (needsPlaceToPost ? openCityPicker("offer") : handleWantsToOffer())}
-          onFamilyClick={() => {
-            leaveRentalsIfNeeded();
-            if (needsPlaceToPost) openCityPicker("family");
-            else setFamilyModalOpen(true);
-          }}
+          onServicesClick={handleWantsServices}
           onRentalsClick={() => (needsPlaceToPost ? openCityPicker("rental") : handleWantsToRent())}
           helpActive={isOffersView}
+          servicesActive={isOutagesView}
           rentalsActive={isRentalsView}
         />
       </div>
@@ -1159,7 +1279,8 @@ export default function HomeClient({
                   mapPlaces.length +
                   mapRoads.length +
                   visibleOffers.length +
-                  visibleRentals.length
+                  visibleRentals.length +
+                  mapOutages.length
                 : isPointsView
                   ? visiblePoints.length
                   : isRoadsView
@@ -1168,7 +1289,9 @@ export default function HomeClient({
                       ? visibleOffers.length
                       : isRentalsView
                         ? visibleRentals.length
-                        : visibleReports.length
+                        : isOutagesView
+                          ? mapOutages.length
+                          : visibleReports.length
             }
             onMap={() => setSheetMode("map")}
             onPeek={() => setSheetMode("peek")}
@@ -1191,8 +1314,27 @@ export default function HomeClient({
             ref={listScrollRef}
             className="sheet-scroll min-h-0 flex-1 overflow-y-scroll overscroll-contain px-2.5 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:p-2"
           >
-            {isPointsView && !isSearching ? (
-              <CollectionPoints points={points} externalCentros={mapExternalCentros} city={city} />
+            {isOutagesView && !isSearching ? (
+              <ServiceOutages
+                outages={outages}
+                cityName={city.name}
+                cityId={city.id}
+                onPublish={() =>
+                  needsPlaceToPost ? openCityPicker("servicio_publicar") : setOutageModalOpen(true)
+                }
+                onUpdated={(outage) =>
+                  setOutages((prev) => prev.map((item) => (item.id === outage.id ? outage : item)))
+                }
+              />
+            ) : isPointsView && !isSearching ? (
+              <CollectionPoints
+                points={points}
+                externalCentros={mapExternalCentros}
+                city={city}
+                onPublish={() =>
+                  needsPlaceToPost ? openCityPicker("acopio") : setAcopioModalOpen(true)
+                }
+              />
             ) : isRoadsView && !isSearching ? (
               <div className="space-y-2 p-0.5">
                 <button
@@ -1519,7 +1661,24 @@ export default function HomeClient({
                     <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
                       Acopio · {visiblePoints.length}
                     </p>
-                    <CollectionPoints points={visiblePoints} city={city} />
+                    <CollectionPoints points={visiblePoints} city={city} showCtas={false} />
+                  </div>
+                )}
+
+                {isSearching && mapOutages.length > 0 && (
+                  <div className="mb-3">
+                    <p className="mb-1 px-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+                      Servicios · {mapOutages.length}
+                    </p>
+                    <ServiceOutages
+                      outages={mapOutages}
+                      cityName={city.name}
+                      showCtas={false}
+                      onPublish={() => setOutageModalOpen(true)}
+                      onUpdated={(outage) =>
+                        setOutages((prev) => prev.map((item) => (item.id === outage.id ? outage : item)))
+                      }
+                    />
                   </div>
                 )}
 
@@ -1530,12 +1689,13 @@ export default function HomeClient({
                   visiblePoints.length === 0 &&
                   mapRoads.length === 0 &&
                   visibleOffers.length === 0 &&
-                  visibleRentals.length === 0 && (
+                  visibleRentals.length === 0 &&
+                  mapOutages.length === 0 && (
                   <p className="px-3 py-8 text-center text-sm font-medium text-ink-soft">
                     {dataError
                       ? "No pudimos cargar los reportes."
                       : isSearching
-                        ? `No hay hospitales, acopios, arriendos, ofertas ni solicitudes con esa búsqueda en ${city.name}.`
+                        ? `No hay hospitales, acopios, servicios, arriendos, ofertas ni solicitudes con esa búsqueda en ${city.name}.`
                         : timeWindow === "6h"
                           ? `No hay solicitudes de las últimas 6 horas en ${city.name}.`
                           : `Aún no hay solicitudes de ayuda en ${city.name}.`}
@@ -1641,63 +1801,94 @@ export default function HomeClient({
       )}
 
       {reportModalOpen ? (
-        <RequestHelpModal
-          open={reportModalOpen}
-          onClose={() => setReportModalOpen(false)}
-          onCreated={handleReportCreated}
-          city={city}
-          onChangeCity={() => openCityPicker()}
-        />
-      ) : null}
-      {familyModalOpen ? (
-        <FamilyStatusModal
-          open={familyModalOpen}
-          onClose={() => setFamilyModalOpen(false)}
-          city={city}
-          onChangeCity={() => openCityPicker()}
-        />
+        <ErrorBoundary onReset={() => setReportModalOpen(false)}>
+          <RequestHelpModal
+            open={reportModalOpen}
+            onClose={() => setReportModalOpen(false)}
+            onCreated={handleReportCreated}
+            city={city}
+            onChangeCity={() => openCityPicker()}
+          />
+        </ErrorBoundary>
       ) : null}
       {roadModalOpen ? (
-        <ClosedRoadModal
-          open={roadModalOpen}
-          onClose={() => setRoadModalOpen(false)}
-          city={city}
-          onChangeCity={() => openCityPicker()}
-          onCreated={(road) => {
-            setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
-            setCategory("vias_cerradas");
-            setSheetMode("peek");
-          }}
-        />
+        <ErrorBoundary onReset={() => setRoadModalOpen(false)}>
+          <ClosedRoadModal
+            open={roadModalOpen}
+            onClose={() => setRoadModalOpen(false)}
+            city={city}
+            onChangeCity={() => openCityPicker()}
+            onCreated={(road) => {
+              setRoads((prev) => (prev.some((item) => item.id === road.id) ? prev : [road, ...prev]));
+              setCategory("vias_cerradas");
+              setSheetMode("peek");
+            }}
+          />
+        </ErrorBoundary>
       ) : null}
       {offerModalOpen ? (
-        <HelpOfferModal
-          open={offerModalOpen}
-          onClose={() => setOfferModalOpen(false)}
-          city={city}
-          onChangeCity={() => openCityPicker()}
-          onCreated={(offer) => {
-            rememberMyOfferId(offer.id);
-            setOffers((prev) => (prev.some((item) => item.id === offer.id) ? prev : [offer, ...prev]));
-            setCategory("ofrezco");
-            setSheetMode("expanded");
-          }}
-        />
+        <ErrorBoundary onReset={() => setOfferModalOpen(false)}>
+          <HelpOfferModal
+            open={offerModalOpen}
+            onClose={() => setOfferModalOpen(false)}
+            city={city}
+            onChangeCity={() => openCityPicker()}
+            onCreated={(offer) => {
+              rememberMyOfferId(offer.id);
+              setOffers((prev) => (prev.some((item) => item.id === offer.id) ? prev : [offer, ...prev]));
+              setCategory("ofrezco");
+              setSheetMode("expanded");
+            }}
+          />
+        </ErrorBoundary>
       ) : null}
       {rentalModalOpen ? (
-        <RentalFormModal
-          open={rentalModalOpen}
-          onClose={() => setRentalModalOpen(false)}
-          city={city}
-          onChangeCity={() => openCityPicker()}
-          onCreated={(rental) => {
-            rememberMyRentalId(rental.id);
-            setRentals((prev) => (prev.some((item) => item.id === rental.id) ? prev : [rental, ...prev]));
-            setCategory("arriendos");
-            setSelectedRentalId(rental.id);
-            setSheetMode("map");
-          }}
-        />
+        <ErrorBoundary onReset={() => setRentalModalOpen(false)}>
+          <RentalFormModal
+            open={rentalModalOpen}
+            onClose={() => setRentalModalOpen(false)}
+            city={city}
+            onChangeCity={() => openCityPicker()}
+            onCreated={(rental) => {
+              rememberMyRentalId(rental.id);
+              setRentals((prev) => (prev.some((item) => item.id === rental.id) ? prev : [rental, ...prev]));
+              setCategory("arriendos");
+              setSelectedRentalId(rental.id);
+              setSheetMode("map");
+            }}
+          />
+        </ErrorBoundary>
+      ) : null}
+      {outageModalOpen ? (
+        <ErrorBoundary onReset={() => setOutageModalOpen(false)}>
+          <ServiceOutageModal
+            open={outageModalOpen}
+            onClose={() => setOutageModalOpen(false)}
+            city={city}
+            onChangeCity={() => openCityPicker()}
+            onCreated={(outage) => {
+              setOutages((prev) => (prev.some((item) => item.id === outage.id) ? prev : [outage, ...prev]));
+              setCategory("servicios");
+              setSheetMode("expanded");
+            }}
+          />
+        </ErrorBoundary>
+      ) : null}
+      {acopioModalOpen ? (
+        <ErrorBoundary onReset={() => setAcopioModalOpen(false)}>
+          <CollectionPointModal
+            open={acopioModalOpen}
+            onClose={() => setAcopioModalOpen(false)}
+            city={city}
+            onChangeCity={() => openCityPicker()}
+            onCreated={(point) => {
+              rememberMyAcopioId(point.id);
+              setPoints((prev) => (prev.some((item) => item.id === point.id) ? prev : [point, ...prev]));
+              setCategory("puntos_acopio");
+              setSheetMode("expanded");
+            }}
+          />
+        </ErrorBoundary>
       ) : null}
       {pickerOpen ? (
         <RegionPicker

@@ -8,6 +8,8 @@ import {
   MUNICIPALITY_COLORS,
   OFFER_COLOR,
   QUICK_CATEGORY_FILTERS,
+  RENTAL_COLOR,
+  SERVICE_OUTAGE_COLOR,
   type Municipality,
   type ReportCategory,
 } from "@/lib/types";
@@ -19,9 +21,14 @@ export type CategoryQuickFilter =
   | "puntos_acopio"
   | "vias_cerradas"
   | "ofrezco"
-  | "arriendos";
+  | "arriendos"
+  | "servicios";
 export type MunicipalityFilter = Municipality | "todos";
 export type TimeWindowFilter = "todas" | "6h";
+
+const HELP_CATEGORY_FILTERS = QUICK_CATEGORY_FILTERS.filter(
+  (item): item is { key: ReportCategory; label: string; emoji: string } => item.key !== "todos"
+);
 
 interface FilterBarProps {
   municipality: MunicipalityFilter;
@@ -56,32 +63,12 @@ export default function FilterBar({
       role="tablist"
       aria-label="Filtros de municipio, categoría y tiempo"
     >
-      {showMetroChips ? (
-        <>
-          {MUNICIPALITIES.map((m) => (
-            <Chip
-              key={m}
-              color={MUNICIPALITY_COLORS[m]}
-              active={municipality === m}
-              onClick={() => onMunicipalityChange(municipality === m ? "todos" : m)}
-            >
-              <span aria-hidden="true">📍</span> {m}
-            </Chip>
-          ))}
-          <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
-        </>
-      ) : null}
-
-      {QUICK_CATEGORY_FILTERS.map(({ key, label, emoji }) => (
-        <Chip
-          key={key}
-          color={key === "todos" ? undefined : CATEGORY_COLORS[key]}
-          active={category === key}
-          onClick={() => onCategoryChange(key)}
-        >
-          <span aria-hidden="true">{emoji}</span> {label}
-        </Chip>
-      ))}
+      <Chip
+        active={category === "todos"}
+        onClick={() => onCategoryChange("todos")}
+      >
+        <span aria-hidden="true">🛟</span> Ayudas
+      </Chip>
       <Chip
         color={ACOPIO_COLOR}
         active={category === "puntos_acopio"}
@@ -97,12 +84,55 @@ export default function FilterBar({
         <span aria-hidden="true">🚧</span> Vías
       </Chip>
       <Chip
+        color={SERVICE_OUTAGE_COLOR}
+        active={category === "servicios"}
+        onClick={() => onCategoryChange("servicios")}
+      >
+        <span aria-hidden="true">⚡</span> Servicios
+      </Chip>
+      <Chip
+        color={RENTAL_COLOR}
+        active={category === "arriendos"}
+        onClick={() => onCategoryChange("arriendos")}
+      >
+        <span aria-hidden="true">🏠</span> Arriendos
+      </Chip>
+      <Chip
         color={OFFER_COLOR}
         active={category === "ofrezco"}
         onClick={() => onCategoryChange("ofrezco")}
       >
         <span aria-hidden="true">🤝</span> Ayudan
       </Chip>
+
+      {showMetroChips ? (
+        <>
+          <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
+          {MUNICIPALITIES.map((m) => (
+            <Chip
+              key={m}
+              color={MUNICIPALITY_COLORS[m]}
+              active={municipality === m}
+              onClick={() => onMunicipalityChange(municipality === m ? "todos" : m)}
+            >
+              <span aria-hidden="true">📍</span> {m}
+            </Chip>
+          ))}
+        </>
+      ) : null}
+
+      <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
+
+      {HELP_CATEGORY_FILTERS.map(({ key, label, emoji }) => (
+        <Chip
+          key={key}
+          color={CATEGORY_COLORS[key]}
+          active={category === key}
+          onClick={() => onCategoryChange(key)}
+        >
+          <span aria-hidden="true">{emoji}</span> {label}
+        </Chip>
+      ))}
 
       <span className="my-1.5 w-px shrink-0 bg-ink/20" aria-hidden="true" />
 

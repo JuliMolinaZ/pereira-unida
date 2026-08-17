@@ -53,7 +53,7 @@ export async function GET(request: Request) {
   }
 
   const known = isRisaraldaMetro(city) ? knownPlacesForQuery(q) : [];
-  const dump = await getCachedAmenities(city.bbox).catch(() => [] as MapPlace[]);
+  const dump = await getCachedAmenities().catch(() => [] as MapPlace[]);
   const { amenities, extra } = detectPlaceSearch(q);
   const local = filterLocal(dump, amenities, extra, q);
 
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
           ? known.length + local.length < 2
           : false;
 
-  const remote = needRemote ? await searchRemotePlaces(q, city.bbox).catch(() => [] as MapPlace[]) : [];
+  const remote = needRemote ? await searchRemotePlaces(q).catch(() => [] as MapPlace[]) : [];
 
   let merged = dedupe([...known, ...local, ...remote]);
   if (extra) {

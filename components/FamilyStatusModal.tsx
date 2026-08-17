@@ -264,7 +264,14 @@ export default function FamilyStatusModal({
       setPhotosBusy(false);
     }
     function handleBackdropClick(e: MouseEvent) {
-      if (e.target === dialog) dialogRef.current?.close();
+      if (e.target !== dialog) return;
+      const rect = dialog!.getBoundingClientRect();
+      const insidePanel =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!insidePanel) dialogRef.current?.close();
     }
     dialog.addEventListener("close", handleClose);
     dialog.addEventListener("click", handleBackdropClick);
@@ -338,7 +345,7 @@ export default function FamilyStatusModal({
     <dialog
       ref={dialogRef}
       aria-labelledby="family-status-title"
-      className="glass m-0 mt-auto w-full max-w-lg rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
+      className="glass m-0 mt-auto flex w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] p-0 text-ink sm:m-auto sm:rounded-[28px]"
     >
       <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-black/20 dark:bg-white/25" />
 
@@ -387,7 +394,7 @@ export default function FamilyStatusModal({
       </div>
 
       {tab === "buscar" ? (
-        <div className="max-h-[min(78dvh,680px)] space-y-3 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="sheet-scroll max-h-[min(78dvh,680px)] space-y-3 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <label className="relative block">
             <Search
               className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-ink-soft"
@@ -481,7 +488,7 @@ export default function FamilyStatusModal({
           </div>
         </div>
       ) : (
-        <div className="max-h-[min(78dvh,680px)] space-y-4 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="sheet-scroll max-h-[min(78dvh,680px)] space-y-4 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           {myRecords.length > 0 && (
             <div className="space-y-2">
               <p className="text-[13px] font-medium text-ink-soft">Mi registro en este teléfono</p>

@@ -62,9 +62,26 @@ export interface CollectionPoint {
   supplies_surplus: string[];
   open_hours: string;
   contact: string;
+  description?: string;
+  photo_urls?: string[];
   lat: number | null;
   lng: number | null;
 }
+
+export const ACOPIO_SUPPLY_OPTIONS = [
+  "Alimentos",
+  "Agua",
+  "Aseo",
+  "Cobijas",
+  "Ropa",
+  "Pañales",
+  "Medicinas",
+  "Colchonetas",
+  "Carpas",
+  "Comida para animales",
+  "Herramientas",
+  "Ollas",
+] as const;
 
 export type PersonStatus = "a_salvo" | "necesito_traslado" | "sin_conexion";
 
@@ -311,6 +328,105 @@ export const CLOSED_ROAD_REASONS = Object.keys(
 export const ROAD_HAZARD_YELLOW = "#e2b340";
 export const ROAD_HAZARD_RED = "#a61b1b";
 
+/** Daños de servicios públicos (postes, energía, agua, gas, internet)
+ * pensados para cuadrillas: pin en el mapa + export CSV/API. */
+export type ServiceKind = "energia" | "poste" | "agua" | "gas" | "internet";
+export type ServiceOutageStatus = "reportado" | "en_atencion" | "resuelto";
+/** Qué tan grave es el daño, para que las cuadrillas prioricen: primero lo
+ * que puede matar (cable vivo, poste a punto de caer), después los cortes
+ * de sector (sirven para mapear qué circuito se cayó) y por último las
+ * fallas puntuales (una acometida, un medidor). */
+export type ServiceOutageSeverity = "peligro_critico" | "corte_sector" | "falla_puntual";
+
+export interface ServiceOutage {
+  id: string;
+  service: ServiceKind;
+  severity: ServiceOutageSeverity;
+  description: string;
+  address: string;
+  municipality: Municipality;
+  department?: string;
+  contact: string;
+  photo_urls: string[];
+  lat: number | null;
+  lng: number | null;
+  status: ServiceOutageStatus;
+  created_at: string;
+}
+
+export const SERVICE_KIND_LABELS: Record<ServiceKind, string> = {
+  energia: "Energía",
+  poste: "Poste",
+  agua: "Agua",
+  gas: "Gas",
+  internet: "Internet",
+};
+
+export const SERVICE_KIND_EMOJI: Record<ServiceKind, string> = {
+  energia: "⚡",
+  poste: "🪵",
+  agua: "💧",
+  gas: "🔥",
+  internet: "📡",
+};
+
+export const SERVICE_KIND_COLORS: Record<ServiceKind, string> = {
+  energia: "#ca8a04",
+  poste: "#8a5a2b",
+  agua: "#3b6ea5",
+  gas: "#c2410c",
+  internet: "#4f6d7a",
+};
+
+export const SERVICE_KINDS = Object.keys(SERVICE_KIND_LABELS) as ServiceKind[];
+
+export const SERVICE_STATUS_LABELS: Record<ServiceOutageStatus, string> = {
+  reportado: "Reportado",
+  en_atencion: "En atención",
+  resuelto: "Resuelto",
+};
+
+export const SERVICE_OUTAGE_COLOR = "#ca8a04";
+
+/** Orden de prioridad: primero peligro de muerte, luego sector, luego puntual. */
+export const SERVICE_SEVERITIES: ServiceOutageSeverity[] = [
+  "peligro_critico",
+  "corte_sector",
+  "falla_puntual",
+];
+
+export const SERVICE_SEVERITY_RANK: Record<ServiceOutageSeverity, number> =
+  Object.fromEntries(SERVICE_SEVERITIES.map((s, i) => [s, i])) as Record<
+    ServiceOutageSeverity,
+    number
+  >;
+
+export const SERVICE_SEVERITY_LABELS: Record<ServiceOutageSeverity, string> = {
+  peligro_critico: "Peligro: cable vivo o poste cayéndose",
+  corte_sector: "Corte de sector (barrio sin luz)",
+  falla_puntual: "Falla puntual (mi acometida)",
+};
+
+export const SERVICE_SEVERITY_SHORT_LABELS: Record<ServiceOutageSeverity, string> = {
+  peligro_critico: "Peligro de muerte",
+  corte_sector: "Corte de sector",
+  falla_puntual: "Falla puntual",
+};
+
+export const SERVICE_SEVERITY_EMOJI: Record<ServiceOutageSeverity, string> = {
+  peligro_critico: "🚨",
+  corte_sector: "🔌",
+  falla_puntual: "⚠️",
+};
+
+/** Mismos tonos que URGENCY_COLORS (carmine / ocre / neutro) para que un
+ * reporte crítico se vea igual de grave acá que en el resto de la app. */
+export const SERVICE_SEVERITY_COLORS: Record<ServiceOutageSeverity, string> = {
+  peligro_critico: "#a61b1b",
+  corte_sector: "#c47a1b",
+  falla_puntual: "#78716c",
+};
+
 export type HelpSkill =
   | "psicologia"
   | "medico"
@@ -531,6 +647,7 @@ export interface HomeData {
   roads: ClosedRoad[];
   offers: HelpOffer[];
   rentals: Rental[];
+  outages: ServiceOutage[];
   externalCentros: ExternalCentro[];
   externalAyudas: ExternalAyuda[];
   externalAfectaciones: ExternalAfectacion[];

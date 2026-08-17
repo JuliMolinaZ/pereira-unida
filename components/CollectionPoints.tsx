@@ -8,17 +8,35 @@ import {
   Loader2,
   LocateFixed,
   MapPin,
+  MessageCircle,
   Navigation,
   Package,
   Pencil,
   Phone,
+  Share2,
 } from "lucide-react";
 import { createCollectionPoint, updateCollectionPointBalance, type ActionResult } from "@/app/actions";
 import { reverseGeocode } from "@/lib/geocode";
-import { cn, googleMapsUrl } from "@/lib/utils";
-import { MUNICIPALITIES, type CollectionPoint, type ExternalCentro, type Municipality } from "@/lib/types";
+import { MAX_ACOPIO_PHOTOS } from "@/lib/photos";
+import {
+  cn,
+  googleMapsUrl,
+  listShareUrl,
+  readMyAcopioIds,
+  shareToWhatsAppAcopio,
+} from "@/lib/utils";
+import {
+  ACOPIO_SUPPLY_OPTIONS,
+  type CollectionPoint,
+  type ExternalCentro,
+  type Municipality,
+} from "@/lib/types";
 import { isRisaraldaMetro, type AppCity } from "@/lib/regions-core";
 import FuenteBadge from "./FuenteBadge";
+import PhotoStrip from "./PhotoStrip";
+import PhotoPicker from "./PhotoPicker";
+import ExpandableText from "./ExpandableText";
+import ShareButton from "./ShareButton";
 
 const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
   ssr: false,
@@ -29,6 +47,49 @@ interface CollectionPointsProps {
   points: CollectionPoint[];
   externalCentros?: ExternalCentro[];
   city?: AppCity;
+  onPublish?: () => void;
+  showCtas?: boolean;
+}
+
+function toggleChip(list: string[], item: string): string[] {
+  return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+}
+
+function isCatalogSupply(item: string): boolean {
+  return (ACOPIO_SUPPLY_OPTIONS as readonly string[]).includes(item);
+}
+
+function SupplyChipRow({
+  selected,
+  onToggle,
+  activeClass,
+}: {
+  selected: string[];
+  onToggle: (item: string) => void;
+  activeClass: string;
+}) {
+  const extras = selected.filter((item) => !isCatalogSupply(item));
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {[...ACOPIO_SUPPLY_OPTIONS, ...extras].map((item) => {
+        const on = selected.includes(item);
+        return (
+          <button
+            key={item}
+            type="button"
+            onClick={() => onToggle(item)}
+            aria-pressed={on}
+            className={cn(
+              "rounded-full px-3 py-1.5 text-[12px] font-medium transition",
+              on ? activeClass : "bg-black/5 text-ink dark:bg-white/10"
+            )}
+          >
+            {item}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 type MunicipalityFilter = "todos" | Municipality;
@@ -52,10 +113,17 @@ const FIELD_CLASS =
   "w-full rounded-2xl bg-black/5 px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-soft/60 focus:ring-2 focus:ring-forest/30 dark:bg-white/10";
 const LABEL_CLASS = "mb-1 block text-[12px] font-medium text-ink-soft";
 
-export default function CollectionPoints({ points, externalCentros = [], city }: CollectionPointsProps) {
+export default function CollectionPoints({
+  points,
+  externalCentros = [],
+  city,
+  onPublish,
+  showCtas = true,
+}: CollectionPointsProps) {
   const [allPoints, setAllPoints] = useState<CollectionPoint[]>(points);
   const [prevPoints, setPrevPoints] = useState(points);
   const [municipality, setMunicipality] = useState<MunicipalityFilter>("todos");
+  const myIds = useMemo(() => new Set(readMyAcopioIds()), [allPoints]);
 
   if (points !== prevPoints) {
     setPrevPoints(points);
@@ -84,6 +152,32 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
 
   return (
     <div>
+      {showCtas && onPublish ? (
+        <div className="mb-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onPublish}
+            className="flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-forest/90 text-[13px] font-semibold text-white"
+          >
+            <Package className="h-4 w-4" aria-hidden="true" />
+            {city?.name ? `Publicar acopio en ${city.name}` : "Publicar centro de acopio"}
+          </button>
+          <ShareButton
+            title="Centros de acopio en Pereira Unida"
+            text={
+              city?.name
+                ? `Mira los centros de acopio en ${city.name} en Pereira Unida.`
+                : "Mira los centros de acopio en Pereira Unida."
+            }
+            url={listShareUrl("puntos_acopio", city?.id)}
+            label="Compartir la lista de centros de acopio"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/5 text-forest dark:bg-white/10"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+          </ShareButton>
+        </div>
+      ) : null}
+
       {!city || isRisaraldaMetro(city) ? (
         <div className="mb-2 flex items-center gap-2">
           <div
@@ -117,9 +211,18 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
         <div className="mt-2 rounded-[22px] bg-black/5 px-4 py-8 text-center dark:bg-white/5">
           <p className="text-[15px] font-medium text-ink-soft">
             {allPoints.length === 0 && externalCentros.length === 0
-              ? "Aún no hay centros de acopio oficiales registrados."
+              ? "Aún no hay centros de acopio en esta zona. Si estás organizando uno, publícalo."
               : "No hay centros de acopio para este municipio todavía."}
           </p>
+          {showCtas && onPublish ? (
+            <button
+              type="button"
+              onClick={onPublish}
+              className="mt-3 inline-flex h-10 items-center justify-center rounded-full bg-forest/90 px-4 text-[13px] font-semibold text-white"
+            >
+              Publicar el primero
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
@@ -192,6 +295,15 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
                 {point.name}
               </h3>
 
+              <PhotoStrip urls={point.photo_urls} alt={point.name} />
+
+              {point.description ? (
+                <ExpandableText
+                  text={point.description}
+                  className="mt-1.5 text-[13px] leading-snug whitespace-pre-wrap break-words text-ink-soft"
+                />
+              ) : null}
+
               <p className="mt-1 flex items-center gap-1 text-[13px] text-ink-soft">
                 <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span className="line-clamp-1">{point.address}</span>
@@ -235,9 +347,24 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
                 </div>
               ) : null}
 
-              <BalanceEditor point={point} onUpdated={handlePointUpdated} />
+              <BalanceEditor
+                point={point}
+                mine={myIds.has(point.id)}
+                onUpdated={handlePointUpdated}
+              />
 
               <div className="mt-2 flex items-center gap-2">
+                {isPhoneLike(point.contact) ? (
+                  <a
+                    href={shareToWhatsAppAcopio(point)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-[var(--whatsapp)] px-3 text-[13px] font-semibold text-white"
+                  >
+                    <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                    WhatsApp
+                  </a>
+                ) : null}
                 {googleMapsUrl(point.lat, point.lng) ? (
                   <a
                     href={googleMapsUrl(point.lat, point.lng) ?? undefined}
@@ -252,10 +379,10 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
                 {point.contact && isPhoneLike(point.contact) ? (
                   <a
                     href={`tel:${point.contact.replace(/\s+/g, "")}`}
-                    className="flex h-9 items-center justify-center gap-1.5 rounded-full bg-black/5 px-3 text-[13px] font-medium text-ink dark:bg-white/10"
+                    aria-label={`Llamar a ${point.name}`}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink dark:bg-white/10"
                   >
                     <Phone className="h-4 w-4" aria-hidden="true" />
-                    {point.contact}
                   </a>
                 ) : null}
                 {point.contact && !isPhoneLike(point.contact) ? (
@@ -274,22 +401,23 @@ export default function CollectionPoints({ points, externalCentros = [], city }:
 }
 
 /**
- * Toggle inline para actualizar qué le falta/sobra a un centro propio, sin
- * tener que borrarlo y publicarlo de nuevo. Mismo modelo de confianza que
- * crear un centro: PIN compartido, sin cuentas — se pide de nuevo cada vez
- * (no se guarda en el navegador).
+ * Toggle inline para actualizar qué le falta/sobra. En centros propios
+ * (publicados desde este celular) se abre sin PIN. En los demás pide el
+ * PIN de organizadores si alguien lo tiene, o se puede dejar vacío en
+ * el wiki de emergencia.
  */
 function BalanceEditor({
   point,
+  mine,
   onUpdated,
 }: {
   point: CollectionPoint;
+  mine: boolean;
   onUpdated: (point: CollectionPoint) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [needed, setNeeded] = useState(point.supplies_needed.join(", "));
-  const [surplus, setSurplus] = useState((point.supplies_surplus ?? []).join(", "));
-  const [pin, setPin] = useState("");
+  const [needed, setNeeded] = useState<string[]>(point.supplies_needed);
+  const [surplus, setSurplus] = useState<string[]>(point.supplies_surplus ?? []);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -297,11 +425,16 @@ function BalanceEditor({
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setNeeded(point.supplies_needed);
+          setSurplus(point.supplies_surplus ?? []);
+          setError(null);
+          setOpen(true);
+        }}
         className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-ink-soft"
       >
         <Pencil className="h-3 w-3" aria-hidden="true" />
-        Actualizar falta/sobra
+        {mine ? "Actualizar falta/sobra" : "¿Estás en el centro? Actualiza falta/sobra"}
       </button>
     );
   }
@@ -309,43 +442,34 @@ function BalanceEditor({
   async function handleSave() {
     setPending(true);
     setError(null);
-    const result = await updateCollectionPointBalance(
-      point.id,
-      pin,
-      needed.split(",").map((s) => s.trim()).filter(Boolean),
-      surplus.split(",").map((s) => s.trim()).filter(Boolean)
-    );
+    const result = await updateCollectionPointBalance(point.id, "", needed, surplus);
     setPending(false);
     if (result.success && result.data) {
       onUpdated(result.data);
       setOpen(false);
-      setPin("");
     } else {
       setError(result.error ?? "No se pudo actualizar.");
     }
   }
 
   return (
-    <div className="mt-1.5 space-y-1.5 rounded-2xl bg-black/5 p-2.5 dark:bg-white/10">
-      <input
-        value={needed}
-        onChange={(e) => setNeeded(e.target.value)}
-        placeholder="Qué falta (separado por coma)"
-        className={FIELD_CLASS}
-      />
-      <input
-        value={surplus}
-        onChange={(e) => setSurplus(e.target.value)}
-        placeholder="Qué sobra (separado por coma)"
-        className={FIELD_CLASS}
-      />
-      <input
-        value={pin}
-        onChange={(e) => setPin(e.target.value)}
-        type="password"
-        placeholder="PIN"
-        className={FIELD_CLASS}
-      />
+    <div className="mt-1.5 space-y-2 rounded-2xl bg-black/5 p-2.5 dark:bg-white/10">
+      <div>
+        <p className="mb-1 text-[11px] font-semibold text-carmine">Falta</p>
+        <SupplyChipRow
+          selected={needed}
+          onToggle={(item) => setNeeded(toggleChip(needed, item))}
+          activeClass="bg-carmine/90 text-white"
+        />
+      </div>
+      <div>
+        <p className="mb-1 text-[11px] font-semibold text-forest">Sobra</p>
+        <SupplyChipRow
+          selected={surplus}
+          onToggle={(item) => setSurplus(toggleChip(surplus, item))}
+          activeClass="bg-forest/90 text-white"
+        />
+      </div>
       {error ? <p className="text-[11px] font-medium text-carmine">{error}</p> : null}
       <div className="flex gap-2">
         <button
@@ -358,7 +482,7 @@ function BalanceEditor({
         <button
           type="button"
           onClick={handleSave}
-          disabled={pending || !pin}
+          disabled={pending}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-forest py-1.5 text-[12px] font-semibold text-white disabled:opacity-60"
         >
           {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Guardar"}
@@ -378,12 +502,17 @@ const initialState: ActionResult<CollectionPoint> = { success: false };
 
 export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
+  const photosRef = useRef<File[]>([]);
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [address, setAddress] = useState("");
   const [municipality, setMunicipality] = useState<Municipality>("Pereira");
+  const [needed, setNeeded] = useState<string[]>([]);
+  const [surplus, setSurplus] = useState<string[]>([]);
   const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [mapOpen, setMapOpen] = useState(true);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [photoEpoch, setPhotoEpoch] = useState(0);
+  const [photosBusy, setPhotosBusy] = useState(false);
   const hasExactLocation = Boolean(lat && lng);
 
   async function applyCoords(latitude: number, longitude: number) {
@@ -430,7 +559,13 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
       formData.set("lng", lng);
       formData.set("address", address);
       formData.set("municipality", municipality);
+      formData.set("supplies_needed", needed.join(", "));
+      formData.set("supplies_surplus", surplus.join(", "));
       formData.set("pin", accessKey);
+      formData.delete("photos");
+      for (const file of photosRef.current) {
+        formData.append("photos", file);
+      }
       const result = await createCollectionPoint(formData);
       if (result.success && result.data) {
         onCreated(result.data);
@@ -438,7 +573,11 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
         setLat("");
         setLng("");
         setAddress("");
+        setNeeded([]);
+        setSurplus([]);
         setGeoStatus("idle");
+        setPhotoEpoch((n) => n + 1);
+        photosRef.current = [];
       }
       return result;
     },
@@ -459,6 +598,20 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
           maxLength={160}
           placeholder="Ej: CAFE Consota"
           className={FIELD_CLASS}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="acopio-description" className={LABEL_CLASS}>
+          Qué reciben y cómo llegar (opcional)
+        </label>
+        <textarea
+          id="acopio-description"
+          name="description"
+          maxLength={500}
+          rows={3}
+          placeholder="Ej: Recibimos mercados y aseo. Entrada por la cancha."
+          className={cn(FIELD_CLASS, "resize-none")}
         />
       </div>
 
@@ -543,31 +696,49 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
       </div>
 
       <div>
-        <label htmlFor="acopio-supplies" className={LABEL_CLASS}>
-          Qué le falta (separado por coma)
-        </label>
-        <input
-          id="acopio-supplies"
-          name="supplies_needed"
-          type="text"
-          maxLength={300}
-          placeholder="Agua embotellada, Kits de aseo, Cobijas"
-          className={FIELD_CLASS}
-        />
+        <span className={LABEL_CLASS}>Qué le falta</span>
+        <div className="flex flex-wrap gap-1.5">
+          {ACOPIO_SUPPLY_OPTIONS.map((item) => {
+            const on = needed.includes(item);
+            return (
+              <button
+                key={`admin-need-${item}`}
+                type="button"
+                onClick={() => setNeeded(toggleChip(needed, item))}
+                aria-pressed={on}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-[12px] font-medium",
+                  on ? "bg-carmine/90 text-white" : "bg-black/5 text-ink dark:bg-white/10"
+                )}
+              >
+                {item}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div>
-        <label htmlFor="acopio-surplus" className={LABEL_CLASS}>
-          Qué le sobra (separado por coma, opcional)
-        </label>
-        <input
-          id="acopio-surplus"
-          name="supplies_surplus"
-          type="text"
-          maxLength={300}
-          placeholder="Ropa usada, Juguetes"
-          className={FIELD_CLASS}
-        />
+        <span className={LABEL_CLASS}>Qué le sobra</span>
+        <div className="flex flex-wrap gap-1.5">
+          {ACOPIO_SUPPLY_OPTIONS.map((item) => {
+            const on = surplus.includes(item);
+            return (
+              <button
+                key={`admin-surplus-${item}`}
+                type="button"
+                onClick={() => setSurplus(toggleChip(surplus, item))}
+                aria-pressed={on}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-[12px] font-medium",
+                  on ? "bg-forest/90 text-white" : "bg-black/5 text-ink dark:bg-white/10"
+                )}
+              >
+                {item}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -586,18 +757,32 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
         </div>
         <div>
           <label htmlFor="acopio-contact" className={LABEL_CLASS}>
-            Contacto
+            WhatsApp *
           </label>
           <input
             id="acopio-contact"
             name="contact"
-            type="text"
+            type="tel"
+            required
+            inputMode="tel"
             maxLength={40}
             placeholder="3001234567"
             className={FIELD_CLASS}
           />
         </div>
       </div>
+
+      <PhotoPicker
+        key={photoEpoch}
+        id="acopio-admin-photos"
+        label="Fotos del centro"
+        hint="Fachada, donaciones o el aviso. Hasta 5."
+        max={MAX_ACOPIO_PHOTOS}
+        onFilesChange={(files) => {
+          photosRef.current = files;
+        }}
+        onBusyChange={setPhotosBusy}
+      />
 
       <input type="hidden" name="pin" value={accessKey} />
 
@@ -617,7 +802,7 @@ export function CreatePointForm({ onCreated, onCancel, accessKey }: CreatePointF
         ) : null}
         <button
           type="submit"
-          disabled={isPending || !hasExactLocation}
+          disabled={isPending || photosBusy || !hasExactLocation}
           className="flex flex-1 items-center justify-center gap-2 rounded-full bg-forest py-2.5 text-[14px] font-semibold text-white disabled:opacity-60"
         >
           {isPending && <Loader2 className="h-4 w-4 animate-spin" />}

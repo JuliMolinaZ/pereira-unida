@@ -51,7 +51,13 @@ export default function RegionPicker({
     function handleBackdropClick(e: MouseEvent) {
       if (e.target !== dialog) return;
       if (required) return;
-      dialogRef.current?.close();
+      const rect = dialog!.getBoundingClientRect();
+      const insidePanel =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!insidePanel) dialogRef.current?.close();
     }
     dialog.addEventListener("close", handleClose);
     dialog.addEventListener("cancel", handleCancel);

@@ -3,7 +3,7 @@
 import { MapPin } from "lucide-react";
 import type { AppCity } from "@/lib/regions-core";
 
-type CityBannerAction = "pedir" | "ofrecer" | "familia" | "via" | "arriendo";
+type CityBannerAction = "pedir" | "ofrecer" | "familia" | "via" | "arriendo" | "acopio" | "servicio";
 
 const COPY: Record<CityBannerAction, (city: string) => string> = {
   pedir: (city) => `Tu solicitud se ve en ${city}`,
@@ -11,6 +11,8 @@ const COPY: Record<CityBannerAction, (city: string) => string> = {
   familia: (city) => `Familia en ${city}`,
   via: (city) => `La vía se marca en ${city}`,
   arriendo: (city) => `El arriendo se publica en ${city}`,
+  acopio: (city) => `El acopio se publica en ${city}`,
+  servicio: (city) => `El daño se reporta en ${city}`,
 };
 
 export default function CityBanner({

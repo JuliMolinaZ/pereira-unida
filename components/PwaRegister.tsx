@@ -20,12 +20,22 @@ export default function PwaRegister() {
     const register = () => {
       navigator.serviceWorker
         .register("/sw.js")
-        .then(() => navigator.serviceWorker.ready)
+        .then((registration) => {
+          registration.update();
+          return navigator.serviceWorker.ready;
+        })
         .then(() => fetch("/api/offline-kit"))
         .catch(() => {
           // Registro silencioso: si falla, la app sigue funcionando sin PWA.
         });
     };
+
+    const onControllerChange = () => {
+      if (sessionStorage.getItem("pu-sw-reloaded")) return;
+      sessionStorage.setItem("pu-sw-reloaded", "1");
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
 
     const schedule = () => {
       if (typeof window.requestIdleCallback === "function") {
@@ -40,6 +50,7 @@ export default function PwaRegister() {
 
     return () => {
       window.removeEventListener("load", schedule);
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
       if (idleId && typeof window.cancelIdleCallback === "function") {
         window.cancelIdleCallback(idleId);
       }

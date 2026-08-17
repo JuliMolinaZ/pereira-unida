@@ -1,4 +1,14 @@
-import { HELP_SKILL_LABELS, type HelpOffer, type Rental, type Report } from "./types";
+import {
+  HELP_SKILL_LABELS,
+  SERVICE_KIND_LABELS,
+  SERVICE_SEVERITY_SHORT_LABELS,
+  SERVICE_STATUS_LABELS,
+  type CollectionPoint,
+  type HelpOffer,
+  type Rental,
+  type Report,
+  type ServiceOutage,
+} from "./types";
 
 export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://pereiraunida.com";
@@ -104,6 +114,44 @@ export function formatCop(value: number | null | undefined): string {
 export function parseContactPhones(contact: string): string[] {
   const matches = contact.match(/\d{7,}/g) ?? [];
   return Array.from(new Set(matches));
+}
+
+const MY_ACOPIO_IDS_KEY = "pereiraunida:my-acopio-ids";
+
+export function readMyAcopioIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MY_ACOPIO_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberMyAcopioId(id: string) {
+  if (typeof window === "undefined") return;
+  const next = Array.from(new Set([...readMyAcopioIds(), id]));
+  window.localStorage.setItem(MY_ACOPIO_IDS_KEY, JSON.stringify(next));
+}
+
+export function shareToWhatsAppAcopio(point: CollectionPoint): string {
+  const number = toWhatsAppNumber(point.contact);
+  const mapsUrl = googleMapsUrl(point.lat, point.lng);
+  const need = point.supplies_needed.slice(0, 4).join(", ");
+  const message = [
+    `Hola, vi en Pereira Unida el centro de acopio *${point.name}* (${point.address}, ${point.municipality}).`,
+    need ? `Vi que necesitan: ${need}.` : null,
+    mapsUrl ? `Cómo llegar: ${mapsUrl}` : null,
+    "¿Puedo llevar donaciones?",
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+  const text = encodeURIComponent(message);
+  return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
 }
 
 export function shareToWhatsAppRental(rental: Rental): string {
@@ -226,6 +274,78 @@ export function googleMapsUrl(
   if (a === null || b === null || !hasExactCoords(a, b)) return null;
   const dest = `${a.toFixed(7)},${b.toFixed(7)}`;
   return `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
+}
+
+function csvCell(value: string): string {
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+function bogotaStamp(iso: string): { fecha: string; hora: string } {
+  const d = new Date(iso);
+  const fecha = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(d);
+  const hora = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+  return { fecha, hora };
+}
+
+/** CSV con BOM para que Excel en Windows abra tildes bien. */
+export function buildServiceOutagesCsv(
+  rows: ServiceOutage[],
+  opts?: { includeContact?: boolean }
+): string {
+  const headers = [
+    "fecha",
+    "hora",
+    "severidad",
+    "servicio",
+    "estado",
+    "detalle",
+    "direccion",
+    "ciudad",
+    "departamento",
+    "lat",
+    "lng",
+    "maps",
+    "fotos",
+  ];
+  if (opts?.includeContact) headers.push("contacto");
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    const { fecha, hora } = bogotaStamp(row.created_at);
+    const cells = [
+      fecha,
+      hora,
+      SERVICE_SEVERITY_SHORT_LABELS[row.severity] ?? row.severity,
+      SERVICE_KIND_LABELS[row.service] ?? row.service,
+      SERVICE_STATUS_LABELS[row.status] ?? row.status,
+      row.description,
+      row.address,
+      row.municipality,
+      row.department ?? "",
+      row.lat != null ? String(row.lat) : "",
+      row.lng != null ? String(row.lng) : "",
+      googleMapsUrl(row.lat, row.lng) ?? "",
+      (row.photo_urls ?? []).join(" "),
+    ];
+    if (opts?.includeContact) cells.push(row.contact);
+    lines.push(cells.map((cell) => csvCell(String(cell))).join(","));
+  }
+  return `\uFEFF${lines.join("\r\n")}`;
+}
+
+export function downloadTextFile(filename: string, contents: string, mime: string) {
+  const blob = new Blob([contents], { type: mime });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(href);
 }
 
 export function cn(...classes: Array<string | false | null | undefined>) {

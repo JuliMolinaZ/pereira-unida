@@ -1,24 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Home, Package } from "lucide-react";
+import { ArrowLeft, Home, Package, Zap } from "lucide-react";
 import { CreatePointForm } from "./CollectionPoints";
 import RentalAdminPanel from "./RentalAdminPanel";
-import { type CollectionPoint, type Rental } from "@/lib/types";
+import ServiceOutages from "./ServiceOutages";
+import { type CollectionPoint, type Rental, type ServiceOutage } from "@/lib/types";
 
 interface AcopioAdminClientProps {
   accessKey: string;
   initialPoints: CollectionPoint[];
   initialRentals?: Rental[];
+  initialOutages?: ServiceOutage[];
 }
 
 export default function AcopioAdminClient({
   accessKey,
   initialPoints,
   initialRentals = [],
+  initialOutages = [],
 }: AcopioAdminClientProps) {
   const [points, setPoints] = useState(initialPoints);
-  const [tab, setTab] = useState<"acopio" | "arriendos">("acopio");
+  const [outages, setOutages] = useState(initialOutages);
+  const [tab, setTab] = useState<"acopio" | "arriendos" | "servicios">("acopio");
 
   return (
     <div className="min-h-dvh bg-[#0e0e10] px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -31,7 +35,7 @@ export default function AcopioAdminClient({
           Volver al mapa
         </a>
 
-        <div className="mb-3 grid grid-cols-2 gap-1.5 rounded-full bg-white/10 p-1">
+        <div className="mb-3 grid grid-cols-3 gap-1.5 rounded-full bg-white/10 p-1">
           <button
             type="button"
             onClick={() => setTab("acopio")}
@@ -55,6 +59,18 @@ export default function AcopioAdminClient({
           >
             <Home className="h-4 w-4" />
             Arriendos
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("servicios")}
+            className={
+              tab === "servicios"
+                ? "flex h-10 items-center justify-center gap-1.5 rounded-full bg-white text-[13px] font-semibold text-ink"
+                : "flex h-10 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium text-white/70"
+            }
+          >
+            <Zap className="h-4 w-4" />
+            Servicios
           </button>
         </div>
 
@@ -97,7 +113,7 @@ export default function AcopioAdminClient({
               ))}
             </div>
           </>
-        ) : (
+        ) : tab === "arriendos" ? (
           <div className="glass rounded-[24px] p-3">
             <div className="mb-3 flex items-center gap-2">
               <Home className="h-4 w-4 text-ink-soft" aria-hidden="true" />
@@ -109,6 +125,26 @@ export default function AcopioAdminClient({
               </div>
             </div>
             <RentalAdminPanel accessKey={accessKey} initialRentals={initialRentals} />
+          </div>
+        ) : (
+          <div className="glass rounded-[24px] p-3">
+            <div className="mb-3 flex items-center gap-2">
+              <Zap className="h-4 w-4 text-ink-soft" aria-hidden="true" />
+              <div>
+                <p className="text-[12px] font-medium text-ink-soft">Cuadrillas</p>
+                <h1 className="text-[18px] leading-tight font-semibold text-ink">
+                  Daños de servicios
+                </h1>
+              </div>
+            </div>
+            <ServiceOutages
+              outages={outages}
+              showCtas={false}
+              onPublish={() => undefined}
+              onUpdated={(outage) =>
+                setOutages((prev) => prev.map((item) => (item.id === outage.id ? outage : item)))
+              }
+            />
           </div>
         )}
       </div>
