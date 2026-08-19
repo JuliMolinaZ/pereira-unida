@@ -7,6 +7,7 @@ import { cn, formatTimeAgo, listShareUrl, readMyOfferIds, shareToWhatsAppOffer }
 import ExpandableText from "./ExpandableText";
 import ShareButton from "./ShareButton";
 import FuenteBadge from "./FuenteBadge";
+import PhotoStrip from "./PhotoStrip";
 import {
   HELP_SKILL_COLORS,
   HELP_SKILL_EMOJI,
@@ -237,6 +238,7 @@ function HelpOfferCard({
               className="mt-0.5 text-[13px] leading-snug whitespace-pre-wrap break-words text-ink-soft"
             />
           ) : null}
+          <PhotoStrip urls={offer.photo_urls} alt={offer.full_name} />
           <p className="mt-1 text-[11px] text-ink-soft" suppressHydrationWarning>
             {formatTimeAgo(offer.created_at)}
           </p>

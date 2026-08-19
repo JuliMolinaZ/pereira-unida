@@ -116,3 +116,57 @@ export async function notifySubscribers(
     console.error("notifySubscribers error:", err instanceof Error ? err.message : err);
   }
 }
+
+/**
+ * Igual que `notifySubscribers`, pero a TODOS los suscritos sin filtrar por
+ * `topic`/municipio ni respetar el cooldown — pensado para un broadcast
+ * puntual (resumen diario) en vez de una notificación disparada por evento.
+ */
+export async function notifyAllSubscribers(
+  payload: PushPayload
+): Promise<{ sent: number; expired: number }> {
+  if (!ensureConfigured()) return { sent: 0, expired: 0 };
+
+  try {
+    const client = getPrivilegedSupabaseClient();
+    const { data, error } = await client
+      .from("push_subscriptions")
+      .select("id, endpoint, p256dh, auth, last_notified_at")
+      .limit(2000);
+    if (error || !data) return { sent: 0, expired: 0 };
+
+    const body = JSON.stringify(payload);
+    const expiredIds: string[] = [];
+    const notifiedIds: string[] = [];
+
+    await Promise.all(
+      (data as SubscriptionRow[]).map(async (row) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+            body
+          );
+          notifiedIds.push(row.id);
+        } catch (err) {
+          const statusCode = (err as { statusCode?: number } | undefined)?.statusCode;
+          if (statusCode === 404 || statusCode === 410) expiredIds.push(row.id);
+        }
+      })
+    );
+
+    if (notifiedIds.length > 0) {
+      await client
+        .from("push_subscriptions")
+        .update({ last_notified_at: new Date().toISOString() })
+        .in("id", notifiedIds);
+    }
+    if (expiredIds.length > 0) {
+      await client.from("push_subscriptions").delete().in("id", expiredIds);
+    }
+
+    return { sent: notifiedIds.length, expired: expiredIds.length };
+  } catch (err) {
+    console.error("notifyAllSubscribers error:", err instanceof Error ? err.message : err);
+    return { sent: 0, expired: 0 };
+  }
+}

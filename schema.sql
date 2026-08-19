@@ -902,3 +902,11 @@ alter table public.service_outages
     check (severity in ('peligro_critico', 'corte_sector', 'falla_puntual'));
 
 create index if not exists service_outages_severity_idx on public.service_outages (severity);
+
+-- ============================================================================
+-- MIGRACIÓN — Fotos en ofertas de ayuda (2026-08-18). Mismo contenido que
+-- supabase/migrations/20260818010000_help_offers_photos.sql.
+-- ============================================================================
+
+alter table public.help_offers
+  add column if not exists photo_urls text[] not null default '{}';

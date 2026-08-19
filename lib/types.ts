@@ -450,6 +450,7 @@ export interface HelpOffer {
   municipality: Municipality;
   department?: string;
   status: HelpOfferStatus;
+  photo_urls: string[];
   created_at: string;
 }
 

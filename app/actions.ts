@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { scheduleExternalSync } from "@/lib/externalSync";
+import { autoResolveStaleReports } from "@/lib/reportMaintenance";
 import { tryCreateServerSupabaseClient } from "@/lib/supabase/server";
 import {
   getSupabaseConfigError,
@@ -888,6 +889,7 @@ export async function getHomeData(
   // minutos haga trabajo real (ver lib/externalSync.ts).
   after(() => {
     void scheduleExternalSync();
+    void autoResolveStaleReports();
   });
 
   const applyZone = <T extends { eq: (col: string, val: string) => T }>(
