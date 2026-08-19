@@ -625,7 +625,7 @@ export interface ExternalAfectacion {
   id: string;
   fuente: "pereira_responde" | "pereira_ayuda" | "reporte_co";
   external_id: string;
-  tipo: "housing" | "road" | "support";
+  tipo: "housing" | "road" | "support" | "utility";
   gravedad: string | null;
   title: string;
   subtipo: string | null;

@@ -9,6 +9,7 @@ const TIPO_LABEL: Record<ExternalAfectacion["tipo"], string> = {
   housing: "Edificio dañado",
   road: "Vía afectada",
   support: "Servicio de apoyo",
+  utility: "Servicio público afectado",
 };
 
 const GRAVEDAD_LABEL: Record<string, string> = {

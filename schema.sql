@@ -685,7 +685,7 @@ create table if not exists public.external_afectaciones (
   id                text primary key,
   fuente            text not null default 'pereira_responde',
   external_id       text not null,
-  tipo              text not null check (tipo in ('housing', 'road', 'support')),
+  tipo              text not null check (tipo in ('housing', 'road', 'support', 'utility')),
   gravedad          text,
   title             text not null,
   subtipo           text,

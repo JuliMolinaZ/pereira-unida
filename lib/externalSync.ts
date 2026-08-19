@@ -210,6 +210,20 @@ const RIESGO_A_GRAVEDAD: Record<string, string> = {
 
 const NOTA_VACIA = "Ubicación registrada";
 
+/** tipo de external_afectaciones: debe calzar con el check constraint de la
+ * tabla (ver migración de `utility`). Cualquier valor nuevo que Pereira
+ * Responde agregue sin avisar cae a "support" en vez de tumbar el upsert
+ * completo (le pasó a "utility" antes de agregarlo acá). */
+const PEREIRA_RESPONDE_TIPOS = new Set(["housing", "road", "support", "utility"]);
+function normalizeAfectacionTipo(raw: unknown): "housing" | "road" | "support" | "utility" {
+  const value = String(raw ?? "");
+  return (PEREIRA_RESPONDE_TIPOS.has(value) ? value : "support") as
+    | "housing"
+    | "road"
+    | "support"
+    | "utility";
+}
+
 /** Pereira Responde: daños estructurales y vías cerradas. Solo lectura, sin autenticación. Nunca se cargan sus fotos (pesan 3-7MB cada una, ver su propia doc). */
 async function syncPereiraResponde(ourClient: SupabaseClient): Promise<void> {
   const res = await fetch(PEREIRA_RESPONDE_URL, { headers: { Accept: "application/json" } });
@@ -240,7 +254,7 @@ async function syncPereiraResponde(ourClient: SupabaseClient): Promise<void> {
       id: `pereira_responde:${r.id}`,
       fuente: "pereira_responde" as const,
       external_id: String(r.id),
-      tipo: String(r.type) as "housing" | "road" | "support",
+      tipo: normalizeAfectacionTipo(r.type),
       gravedad: RIESGO_A_GRAVEDAD[String(r.risk)] ?? "sin-clasificar",
       title,
       subtipo: (r.category as string | null) ?? null,
@@ -256,7 +270,15 @@ async function syncPereiraResponde(ourClient: SupabaseClient): Promise<void> {
   });
 
   if (rows.length > 0) {
-    const { error } = await ourClient.from("external_afectaciones").upsert(rows, { onConflict: "id" });
+    let { error } = await ourClient.from("external_afectaciones").upsert(rows, { onConflict: "id" });
+    if (error && /tipo/i.test(error.message) && /check/i.test(error.message)) {
+      // La migración que agrega "utility" al check constraint (ver
+      // supabase/migrations/20260818000000_afectacion_tipo_utility.sql)
+      // puede no estar aplicada todavía: reintenta degradando ese tipo a
+      // "support" para no perder el resto del lote mientras tanto.
+      const fallbackRows = rows.map((r) => (r.tipo === "utility" ? { ...r, tipo: "support" as const } : r));
+      ({ error } = await ourClient.from("external_afectaciones").upsert(fallbackRows, { onConflict: "id" }));
+    }
     if (error) throw new Error(`upsert external_afectaciones: ${error.message}`);
   }
   await pruneMissing(ourClient, "external_afectaciones", "pereira_responde", rows.map((r) => r.id));

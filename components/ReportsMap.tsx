@@ -54,6 +54,14 @@ const AFECTACION_EMOJI: Record<ExternalAfectacion["tipo"], string> = {
   road: "🚧",
   housing: "🏚️",
   support: "⛺",
+  utility: "💧",
+};
+
+const AFECTACION_LABEL: Record<ExternalAfectacion["tipo"], string> = {
+  road: "Vía afectada",
+  housing: "Daño estructural",
+  support: "Daño estructural",
+  utility: "Servicio público afectado",
 };
 
 const AYUDA_EMOJI: Record<ExternalAyuda["tipo"], string> = {
@@ -1345,7 +1353,7 @@ export default function ReportsMap({
             <div className="min-w-[170px] space-y-1.5 p-0.5 text-xs text-ink">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-semibold tracking-wide text-carmine uppercase">
-                  {openExternalAfectacion.tipo === "road" ? "Vía afectada" : "Daño estructural"}
+                  {AFECTACION_LABEL[openExternalAfectacion.tipo]}
                 </p>
                 <button
                   type="button"
